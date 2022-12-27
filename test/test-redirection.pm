@@ -182,7 +182,7 @@ subtest "Redirect option argument completion for a option occuring at any subcom
         REDIRECT_CMD__ANY__OPT3 => 'anytool_or_shellfunc',
         REDIRECT_CMD__OPT1      => 'false',
         REDIRECT_CMD__OPT2      => 'no',
-        REDIRECT_CMD__OPT3      => '0',
+        REDIRECT_CMD__OPT3      => "0",
     });
 
     subtest "Redirect a single opts for all sub commands" => sub {

@@ -17,11 +17,13 @@ sub redirectOptFromEnv {  my  ($optname, $defaultval, $envns, $mainapp) = @_;
     $mainapp = uc($mainapp);
     $optname = uc($optname);
     $optname =~ s/-//g;
-    my $ret = ( $optname && $envns   && $ENV{'HT_REDIRECT_'.$envns.'__'.$optname} 
-             || $optname && $mainapp && $ENV{'HT_REDIRECT_'.$mainapp.'__ANY__'.$optname}
-             ||             $envns   && $ENV{'HT_REDIRECT_'.$envns}
-             ||             $mainapp && $ENV{'HT_REDIRECT_'.$mainapp}
-             || $defaultval );
+    sub env { defined $ENV{$_[1]} && do { ${$_[0]}=$ENV{$_[1]}; 1 } }
+    my $ret;
+       $optname && $envns   && env(\$ret, 'HT_REDIRECT_'.$envns.'__'.$optname) 
+    || $optname && $mainapp && env(\$ret, 'HT_REDIRECT_'.$mainapp.'__ANY__'.$optname)
+    ||             $envns   && env(\$ret, 'HT_REDIRECT_'.$envns)
+    ||             $mainapp && env(\$ret, 'HT_REDIRECT_'.$mainapp)
+    || ($ret = $defaultval);
     $ret =~ s/^(false|no|0)$//ig;
     return $ret;
 }
