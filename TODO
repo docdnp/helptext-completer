@@ -45,7 +45,6 @@
 * [ ] Feature/Optimize: If `:man` => don't look for subcommands
 * [ ] Refactoring/Analysis: Simplify the way to read environment vars
 * [ ] Refactoring/Analysis: Return values: find_options
-* [ ] Feature: Support zsh completion (similar to pip)
 * [ ] Feature: Support fish completion (similar to pip)
 * [ ] Quality: Integration tests on app level
 * [ ] Quality: User documentation
@@ -93,6 +92,8 @@
 * [ ] Quality/Analysis: deployment:
   - [ ] Flatpak?
   - [ ] As "service" with WebAPI in Docker? 
+* [X] Feature: HT(_APP_<APP>_)?_SHOW_MORE => show args and description in bash
+* [X] Feature: Support zsh completion (similar to pip)
 * [X] Feature: Support bash COMP_POINT
 * [X] Feature: Support additional env vars:
   + [X] HT_REDIRECT_{APP}_SUBCOMMANDS__{OPT} for all commands

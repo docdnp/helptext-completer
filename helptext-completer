@@ -3,7 +3,7 @@ use strict;
 
 package main;
 sub fromEnv {  my  ($envvar, $defaultval, $envns, $mainapp) = @_;
-    $envns = uc($envns);
+    $envns = defined $envns ? uc($envns) : uc($ARGV[0]);
     $mainapp = uc($mainapp);
     my $ret = ( $envns   && $ENV{'HT_APP_'.$envns.'_'.$envvar} 
              || $mainapp && $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar}
@@ -124,12 +124,12 @@ sub init { my $self = $_[0];
     return $self
 }
 
-sub copyDescription { my ($dest, $source) = @_;
+sub copyDescription { my ($dest, $source, $onlyPadding) = @_;
     my $self = $dest;
     $dest->{pad2Args} == $source->{pad2Desc} 
         && return $dest->useArgsAsDesc();
     do {
-        $dest->{desc}     = $source->{desc};
+        $dest->{desc} = ($onlyPadding ? "?" : $source->{desc});
         $dest->{pad2Desc} = $source->{pad2Desc};
         $source = $dest;
     } while ($dest = $dest->{next});
@@ -598,10 +598,15 @@ sub knownOptWithDescription { my ($me, $opt, $linenum) = @_;
 sub tryToFixDescription { my ($me, $opt, $line, $linenum) = @_;
     if ($opt && !$opt->{pad2Desc}) {
         my $descOpt = $me->knownOptWithDescription($opt, $linenum);
-        $descOpt && $opt->copyDescription($descOpt) 
+        my $nextOpt = Opts::Find::DescLine(\$_);
+
+        $nextOpt && $descOpt 
+                 && $nextOpt->{pad2Desc} == $descOpt->{pad2Desc} 
+                 && $opt->copyDescription($nextOpt);
+
+        $descOpt && $opt->copyDescription($descOpt, 1)
             && return;
 
-        my $nextOpt = Opts::Find::DescLine(\$_);
         $nextOpt && $opt->copyDescription($nextOpt) 
             && return;
 
@@ -609,7 +614,7 @@ sub tryToFixDescription { my ($me, $opt, $line, $linenum) = @_;
     }
     elsif ($opt && $opt->{pad2Desc} && @{$me->{optbuffer}}) {
         foreach my $bopt (@{$me->{optbuffer}}) {
-            $bopt->copyDescription($opt);
+            $bopt->copyDescription($opt, 1);
         }
         $me->{optbuffer} = []
     }
@@ -788,6 +793,8 @@ sub main {
     ::register_usage(\&usage);
     get_opts || do { ::main::usage ; exit 1 } ;
 
+    ::debug("Preparing ARGV: [".join('] [', @ARGV)."]");
+    # exit
     @ARGV < 3 && ::error("Missing mandatory arguments.");
     
     my $curCliPos = shift @ARGV;
@@ -822,14 +829,15 @@ sub main {
     my $result = list_matches([@ARGV[0..$curCliPos]]);
 
     ::debug ("RESULT: 1: ", scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
-
-    if(!$ENV{HT_SHOW_ARGS} || @$result == 1) {
+    my $show_more = 0;
+    main::numberFromEnv(\$show_more, SHOW_MORE => 0);
+    if (!$show_more || @$result == 1 || $result->[0] && $result->[0]->{name} eq '<<HT_REDIRECT>>') {
         my $resval   = $result->[0]->{name};
         my $redirect = $resval eq '<<HT_REDIRECT>>';
         my $suffix   = $resval eq '' || $redirect || $currchar =~ /^\s?$/ ? '' : ' ';
         print(map{sprintf("%s$suffix\n",$_->{name})}@$result);
     } else {
-        print(map{sprintf("%s %s\n",$_->{name}, $_->{args})}@$result);
+        print(map{sprintf("%-30s %-40s-- %-80s\n",$_->{name},$_->{args}, substr($_->{desc},0,90).($_->{desc} =~ /\.$/ ? '' : ' .').'..')}@$result);
     }
     ::debug_end();
     exit scalar(@$result)?0:1
@@ -857,8 +865,8 @@ Usage: ${FindBin::Script} [OPTIONS] ARGS...
                             use a cache for the app's help texts. Set 
                             this to 0 to deactivate caching.
                             (Default: 1)
-   HT_SHOW_ARGS             To see also the arguments for options in the
-                            reply, set this variable to 1.
+   HT_SHOW_MORE             To see also the arguments and descriptions for options
+                            in the reply, set this variable to 1. Not in zsh.
                             (Default: 0)
    HT_SHOW_ALL              Only (sub-)commands are suggested in the reply
                             by default. To see options a user must provide
