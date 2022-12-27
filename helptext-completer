@@ -1,0 +1,915 @@
+#!/usr/bin/env -S perl
+use strict;
+
+package main;
+sub fromEnv {  my  ($envvar, $defaultval, $envns, $mainapp) = @_;
+    $envns = uc($envns);
+    $mainapp = uc($mainapp);
+    my $ret = ( $envns   && $ENV{'HT_APP_'.$envns.'_'.$envvar} 
+             || $mainapp && $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar}
+             || $ENV{'HT_'.$envvar} 
+             || $defaultval );
+    return $ret;
+}
+
+sub redirectOptFromEnv {  my  ($optname, $defaultval, $envns, $mainapp) = @_;
+    $envns = uc($envns);
+    $mainapp = uc($mainapp);
+    $optname = uc($optname);
+    $optname =~ s/-//g;
+    my $ret = ( $optname && $envns   && $ENV{'HT_REDIRECT_'.$envns.'__'.$optname} 
+             || $optname && $mainapp && $ENV{'HT_REDIRECT_'.$mainapp.'__ANY__'.$optname}
+             ||             $envns   && $ENV{'HT_REDIRECT_'.$envns}
+             ||             $mainapp && $ENV{'HT_REDIRECT_'.$mainapp}
+             || $defaultval );
+    $ret =~ s/^(false|no|0)$//ig;
+    return $ret;
+}
+
+sub numberFromEnv {  my  ($ref2var, $envvar, $defaultval, $ifGreaterThan, $appname, $mainapp) = @_;
+    my $envval = fromEnv($envvar, $defaultval, $appname, $mainapp);
+    ! ($envval =~ /^\d+$/ && ($envval >= $ifGreaterThan)) && return $defaultval;
+    return $$ref2var = $ENV{'HT_'.$envvar} = $envval;
+}
+
+sub error {
+    print STDERR @_,"\n";
+    debug ("ARG ERROR: ", @_);
+    usage(*STDERR);
+    exit 1;
+}
+
+sub logdebug     { my $caller = (caller(1))[3]; if ($caller =~ /debug_log_line/) { $caller = (caller(2))[3] }; $_[0] =~ /^>(.*)/ && ($caller = $1, shift);my @ARGS=@_; print D "DEBUG: ", $caller, ": ", join("\nDEBUG: ", map{chomp($_);$_='['.$_.']'}@{[@ARGS]} ), "\n" }
+sub logdebug_end { for(1..10) { print D ((caller(1))[3], " # ---------------------------------------------------- #\n" )} }
+sub noop         { 1 }
+sub usage        { 1 }
+
+sub init_debug_log {
+    my  ($optname, $DEBUG_FILE) = @_;
+    !$DEBUG_FILE && return;
+    open D, ">>$DEBUG_FILE"; 
+    *debug     = \&logdebug;
+    *debug_end = \&logdebug_end;
+}
+
+sub trace {
+    no strict 'refs';
+    require FindBin;
+    my $file = $FindBin::RealBin.'/'.$FindBin::RealScript;
+    open my $script, '<'.$file or die "Could not open: $file\n";
+    my $pkgName;
+    sub mapargs {
+        no strict 'subs';
+        my $i=-1;
+        map { $i++; my $h=$_; my $r = ref($_); if(!ref($_))   { $i.':'.$_ }
+                     elsif($r eq ARRAY ){(map{$i.':'.$r.':'.$_}@$_)}
+                     elsif($r eq SCALAR){ $i.':'.$r.':'.$$_}
+                     elsif($r eq GLOB  ){ $i.':'.$r.':'.$_ }
+                     elsif($r eq CODE  ){ $i.':'.$r.':'.$_ }
+                     elsif($r eq Option){ my @k = sort keys %$_;(map{ "$i:$r:$_=>[$h->{$_}]" }@k) }
+                     else{my @k = sort keys %$_;(map{ "$i:$r:$_=>[$h->{$_}]" }@k) }
+                     } @{$_[0]}
+    }
+    while (<$script>) {
+        $_ =~ /^package\s+(.*?)\s*;/ && ($pkgName = $1);
+        $pkgName eq 'main' && next;
+        $_ =~ /^sub\s+(.*?)[\s\{\()]/ && do {
+            my $subname = $pkgName.'::'.$1;
+            *{$subname.'_'} = \&{$subname};
+            *{$subname} = sub {
+                ::debug(">$subname","args: [".join("] [", mapargs(\@_)).']');
+                my @result = (&{$subname.'_'}(@_));
+                ::debug(">$subname","result: [".join("] [", mapargs(\@result)).']');
+                @result > 1 && return @result;
+                return $result[0]
+            };
+        };
+        $_ =~ /^\s*__END__\s*/ && return;
+    }
+}
+
+sub register_usage { *usage = shift ; 
+                      init() }
+sub init           { *debug     = \&noop; 
+                     *debug_end = \&noop; }
+
+if (!defined $ENV{HT_COMPLETER_UNITTEST}) {
+    init();
+}
+
+# ------------------------------------------------------------------------------------------
+package Option;
+
+sub new { my ($class, $args) = @_;
+    my  $self = { name     => '', isCmd    => 0 , line     => '', lineno   => 0,
+                  desc     => '', padding  => '', args     => '', pad2Args => 0, 
+                  next => 0 , numArgs  => 0 , pad2Desc => 0, type   => '', hasOptArgs => 0
+                };
+    $args && ($self = { %$self , %$args });
+    return bless($self, $class)->init();
+}
+
+sub init { my $self = $_[0];
+    $self->{args} =~ /^\s*\[/ && ($self->{hasOptArgs} = 1);
+    $self->{args} =~ s/^\[=(.*?)\]$/$1/;
+    $self->{args} =~ s/^[=\s]*//;
+    $self->{args} =~ s/\s*$//;
+    $self->{numArgs}  = () = $self->{args} =~ /(?:[^\s]+)/g;
+    $self->{line} && do {
+        $self->{pad2Desc} = index(${$self->{line}}, $self->{desc});
+        $self->{pad2Args} = index(${$self->{line}}, $self->{args});
+    };
+    return $self
+}
+
+sub copyDescription { my ($dest, $source) = @_;
+    my $self = $dest;
+    $dest->{pad2Args} == $source->{pad2Desc} 
+        && return $dest->useArgsAsDesc();
+    do {
+        $dest->{desc}     = $source->{desc};
+        $dest->{pad2Desc} = $source->{pad2Desc};
+        $source = $dest;
+    } while ($dest = $dest->{next});
+    return $self;
+}
+
+sub useArgsAsDesc { my ($dest, $source) = @_;
+    my $self = $dest;
+    $source = $dest;
+    do {
+        $dest->{pad2Desc} = $source->{pad2Args};
+        $dest->{desc}     = $source->{args};
+        $dest->{pad2Args} = 0;
+        $dest->{args}     = '';
+        $source = $dest;
+    } while ($dest = $dest->{next});
+    return $self;
+}
+
+sub chain { my ($self, $nextOpt) = @_;
+    $self->{next} = $nextOpt;
+    $nextOpt->{prev} = $self;
+}
+
+# ------------------------------------------------------------------------------------------
+package Opts::Find;
+
+my $nameId          = 0;
+my ($optarg_dist_min, $optarg_dist_max, $padding_min, $padding_max, $no_commands);
+my ($reAnyOptStart, $reAnyOptNext, $reCommand, $reDescription);
+
+sub initRegExps {
+    my $reLeftPadding     = qr/ \s{$padding_min,$padding_max} /x;
+    my $reArgDist         = qr/ \s{$optarg_dist_min,$optarg_dist_max} /x;
+
+    my $reArgHeadNoAssign = qr/ [^\]\}\)\>=-\s] /x; # One char, no assign, blank, opt char or 
+                                                 # closing brackets
+    my $reArgHeadAssign   = qr/ =[^]})>-\s] /x;     # One assign char, followed by, no blank, opt char or 
+                                                 # closing brackets
+    my $reArgBody         = qr/ (?:   \S*[^\s,\|:]+ # Either empty or anything not ending on delimiters
+                            | [^,|:\s]+ )?       # or anything except delimiters
+                        /x;
+    my $reNonAssignArg    = qr/ $reArgHeadNoAssign
+                            $reArgBody
+                        /x;
+    my $reAssignArg       = qr/ $reArgHeadAssign
+                            $reArgBody
+                        /x;
+    my $reArgs            = qr/ (?:$reArgDist$reNonAssignArg)
+                            (?:[,\|:]?$reArgDist$reNonAssignArg)* 
+                            | $reAssignArg
+                            | \[$reAssignArg\]
+                            | \[$reNonAssignArg\]
+                            | \<$reNonAssignArg\>
+                            | \($reNonAssignArg\)
+                            | \{$reNonAssignArg\}
+                            | \/$reNonAssignArg\/
+                        /x;
+    my $rePureShortOpt    = qr/ -[a-zA-Z\d] /x;
+    my $rePureLongOpt     = qr/ --[\w-]+ /x;
+    my $rePrefixedLongOpt = qr/ --\[(?<optprefix>.*?)\](?<optstem>[\w-]+) /x;
+    my $rePureCmd         = qr/ \w[\w-]+ /x;
+    my $reOptDelim        = qr/ (?:[,\|\s]) /x;
+
+    my $reAnyOptBody      = qr/ (?:  (?<longopt>$rePureLongOpt) 
+                                | (?<shortopt>$rePureShortOpt) 
+                                | (?<prefixopt>$rePrefixedLongOpt) 
+                            )(?<args>$reArgs)? 
+                        /x;
+    my $reAnyText         = qr/ .* /x;
+    my $reEmpty           = qr/ \s*\n? /x;
+
+    $reDescription        = qr/ \S.* /x;
+    $reAnyOptStart        = qr/ (?<padding>$reLeftPadding)
+                               $reAnyOptBody
+                           /x;
+    $reAnyOptNext         = qr/ $reOptDelim\s*
+                               $reAnyOptBody
+                           /x;
+    $reCommand            = qr/ ($reLeftPadding)($rePureCmd)(?:\s+($reDescription)?|$reEmpty) /x;
+}
+
+sub init { 
+    my @conf = (
+        # ENVIRONMENT        GLOBAL PACKAGE     DEFAULT    USE ENVIRONMENT VALUES
+        # VARIABLE NAME      VARIABLE           VALUE      IF SMALLER THAN
+        [ OPTARG_DIST_MIN => \$optarg_dist_min,      1,    \0 ],
+        [ OPTARG_DIST_MAX => \$optarg_dist_max,      1,    \$optarg_dist_min ],
+        [ PADDING_MIN     => \$padding_min    ,      1,    \0 ],
+        [ PADDING_MAX     => \$padding_max    ,     10,    \$padding_min ],
+        [ NO_COMMANDS     => \$no_commands    ,      0,    \0 ],
+    );
+    for (@conf) { main::numberFromEnv($_->[1], $_->[0], $_->[2], ${$_->[3]}, @_ ) }
+    $no_commands && (*{Command} = sub {});
+    initRegExps();
+}
+
+sub mkOpt { my ($lineno, $line, $refopt) = @_;
+    my ($optprefix, $optstem) = ($+{optprefix}, $+{optstem});
+    my $opt = new Option { 
+        line     => $line, lineno => $lineno, 
+        padding  => ($+{padding} || ($refopt && $refopt->{padding})), 
+        name     => ($+{longopt} || $+{shortopt} || '--'.$+{optprefix}.$+{optstem}),
+        args     => $+{args}, type => ($+{longopt} || $+{prefixopt})?'LONG':'SHORT'
+    };
+    $+{optprefix} || return $opt;
+    my $nextOpt = new Option { 
+        name     => '--'.$+{optstem}, line => $line, lineno => $lineno, 
+        padding  => $+{padding} || $refopt && $refopt->{padding}, 
+        type => 'LONG', args => ($+{args} || $refopt && $refopt->{args})
+    };
+    $opt->chain($nextOpt);
+    $opt
+}
+
+sub Opt {
+    my ($line, $lineno, $firstOpt, $currOpt, $nextOpt) = ($_[0], $_[1]);
+    $$line =~   /^ $reAnyOptStart /x || return;
+    $currOpt = $firstOpt = mkOpt($lineno, $line);
+    while ($currOpt->{next}) { $currOpt = $currOpt->{next} }
+
+    my $args = ($+{args} || '');
+    my $restOfLine = $';
+    while (1) {
+        ( $restOfLine !~ /^ $reAnyOptNext /x ) && last;
+        $restOfLine = $';
+        $+{args} && !$args && ($args = $+{args});
+        $nextOpt = mkOpt($lineno, $line, $firstOpt);
+        $currOpt->chain($nextOpt);
+        while ($currOpt->{next}) { $currOpt = $currOpt->{next} }
+    }
+
+    $restOfLine =~ /^ \s*(?<desc>$reDescription)?\n?$ /x;
+    $nextOpt = $firstOpt;
+    do { $nextOpt->{desc} = $+{desc};
+         $nextOpt->{args} = ($nextOpt->{args} || $args);
+         $nextOpt->init();
+    } while ($nextOpt = $nextOpt->{next});
+    return $firstOpt;
+}
+
+sub AnyOpt { my ($line, $lineno) = @_;
+    my $opt = (Opt($line, $lineno) || Command($line, $lineno))
+}
+
+sub DescLine { my $line = $_[0];
+    my $padding_max = $padding_max+1;
+    $$line !~ /^ \s{$padding_max,}([^-].*) /x && return 0;
+    return new Option({ name => 'Line-'.$nameId++, line => $line, desc => $1, type => 'DESC'})
+}
+
+sub EmptyLine { my $line = $_[0];
+    $$line !~ /^ \s* $/x && return 0;
+    return new Option({ name => 'Line-'.$nameId++, line => $line, type => 'EMPTY'})
+}
+
+sub Command  {
+    my ($line, $lineno) = @_;
+    $$line=~/^$reCommand$/ || return;
+    ::debug ("Found COMMAND->START     : cmd $2.");
+    my $opt = new Option { line     => $line, padding  => $1, name     => $2,
+                            desc     => $3   , isCmd    => 1 , type     => 'CMD',
+                            lineno   => $lineno };
+}
+
+# ------------------------------------------------------------------------------------------
+package Histogram;
+sub CreateHistogram {
+    my ($list, $propfunc) = @_;
+    my $h = {};
+    my $i = 0;
+    foreach my $item (@$list) {
+        my ($prop) = &$propfunc($item);
+        $h->{$prop}->{$i} = 1;
+        $i++
+    }
+    return $h
+}
+
+sub MaxBinIndex {
+    my ($hist)  = @_;
+    my $maxCnt  = 0;
+    my $maxBin = 0;
+    foreach my $binIdx (keys %$hist) {
+        my $binCnt = keys %{$hist->{$binIdx}};
+        if ($maxCnt < $binCnt) {
+            $maxCnt  = $binCnt;
+            $maxBin  = $binIdx;
+        }
+    }
+    return $maxBin
+}
+
+# ------------------------------------------------------------------------------------------
+package Opts::Filter;
+
+my $maxCmdDist;
+my @filters    = (
+    [ FILTER_APPNAME     => \&DiscardIfMatchesName],
+    [ FILTER_DESCRIPTION => \&KeepByMajoritysDescrPadding],
+    [ FILTER_PADDING     => \&KeepByMajorityOfEquallyIndented],
+    [ FILTER_NO_NEIGHBOR => \&DropCmdIfNoNeighbor]
+);
+
+sub init {
+    main::numberFromEnv(\$maxCmdDist, MAX_CMD_DIST => 5, 0, @_);
+    my $filterDisabled;    
+    @filters = grep {
+        main::numberFromEnv(\$filterDisabled, $_->[0], 0, 0, @_);
+        ! $filterDisabled && $_
+    } @filters;
+}
+
+sub KeepByMajoritysMatchingProp {
+    my ($candidates, $propfunc, $propname) = @_;
+    my $caller = (caller(1))[3];
+    ::debug("$caller: $propname: candidate list size: ".scalar(@$candidates));
+    my $hist      = Histogram::CreateHistogram($candidates, $propfunc);
+    ::debug("$caller: $propname: Hist result: ". $hist);
+    my $numOfBins = scalar(keys %{$hist});
+       $numOfBins < 2 
+       && ::debug("$caller: $propname: Number of bins: $numOfBins < 2: Returning.")
+       && return $candidates;
+
+    my $mostCandidatesPropIdx = Histogram::MaxBinIndex($hist);
+    ::debug("Most option candidates property".($propname?" '$propname'":'')." has len=$mostCandidatesPropIdx, cnt=".(scalar keys %{$hist->{$mostCandidatesPropIdx}}));
+    delete %{$hist}{$mostCandidatesPropIdx};
+    my @remove;
+    foreach my $candidateIdx (keys %$hist) {
+        ::debug("Marking for removal: All candidates with property".($propname?" '$propname'":'')." len=$candidateIdx, cnt=".(scalar keys %{$hist->{$candidateIdx}}));
+        foreach my $len (keys %{$hist->{$candidateIdx}}) {
+            $candidates->[$len]->{type} =~ /EMPTY|DESC/ && next;
+            push(@remove, $len);
+        }
+    }
+    foreach my $rm (sort {$b <=> $a} (@remove)) {
+        ::debug("Removing: $candidates->[$rm]->{name} [$candidates->[$rm]->{args}] $candidates->[$rm]->{pad2Desc} $candidates->[$rm]->{isCmd}");
+        splice @$candidates, $rm, 1;
+    }
+    ::debug("$caller: END: $propname: candidate list size: ".scalar(@$candidates));
+    return $candidates;
+}
+
+sub KeepByMajorityOfEquallyIndented { KeepByMajoritysMatchingProp ($_[0], sub { (length($_[0]->{padding}) || 0) }, 'padding' )}
+sub KeepByMajoritysDescrPadding     { KeepByMajoritysMatchingProp ($_[0], sub { ($_[0]->{pad2Desc} || 0) }       , 'pad2Desc')}
+
+sub DiscardIfMatchesName {
+    my ($candidates, $name) = @_;
+    return [grep {$_->{name} ne $name && $_} @{$candidates}];
+}
+
+sub DropCmdIfNoNeighbor {
+    my $maxNeighborDistance = $maxCmdDist;
+    my ($candidates, $id) = ($_[0]);
+    my @commands = grep { $id++; $_->{type} eq 'CMD' && do { $_->{index} = $id-1 ; $_ } } @{$candidates};
+    ::debug("command list size: ".scalar(@commands));
+    ::debug("line distance: $maxNeighborDistance");
+    my @remove;
+    for (0..@commands-1) {
+        ::debug("checking $_ ".$commands[$_]->{lineno});
+        my ($cond1, $cond2) = ($_ == @commands-1, $_ == 0);
+        $_ < @commands - 1 && ($cond1 = $commands[$_+1]->{lineno} - $commands[$_]->{lineno}   > $maxNeighborDistance);
+        $_ > 0             && ($cond2 = $commands[$_]->{lineno}   - $commands[$_-1]->{lineno} > $maxNeighborDistance);
+        $cond1 && $cond2 
+            && ::debug("$_: Marking for removal: ".$commands[$_]->{name}.": ".$commands[$_]->{index})
+            && push(@remove, $commands[$_]->{index});
+    }
+    foreach my $rm (sort {$b <=> $a} (@remove)) {
+        ::debug("Removing: $rm: $candidates->[$rm]->{name} [$candidates->[$rm]->{args}] $candidates->[$rm]->{pad2Desc} $candidates->[$rm]->{isCmd}");
+        splice @$candidates, $rm, 1;
+    }
+    return $candidates
+}
+
+sub ProbableCandidates {
+    my ($candidates, $name) = @_;
+    foreach my $filter (@filters) {
+        $candidates = $filter->[1]->($candidates, $name)
+    }
+    ::debug("END: candidate list size: ".scalar(@$candidates));
+    return $candidates
+}
+
+# ------------------------------------------------------------------------------------------
+package HelptextCommand;
+
+my $cacheEnabled;
+
+sub init {
+    main::numberFromEnv (\$cacheEnabled, USE_CACHE => 1, 0, @_);
+}
+
+sub HelpCmdFromCache {
+    my ($cmd, $helpOpt, $find, $cmdCopy, $helpCmd) = ($_[0], $_[1], $_[2]);
+    $helpOpt =~ /^:(.*)/ && do {
+        ::debug("Found helpopt: <".(caller(2))[3].">: $helpOpt [$1]");
+        $helpCmd = "$1 ";
+        $helpOpt = '';
+    };
+    ::debug("Calling: <".(caller(2))[3].">: $helpCmd$cmd $helpOpt");
+    $cacheEnabled || return "$helpCmd$cmd $helpOpt";
+    $cmdCopy = $cmd;
+    $cmdCopy =~ s/\s+-\S+\s*/ /g;
+    $cmdCopy =~ s/\s$//g;
+    $cmdCopy =~ s/[\s-]+/_/g;
+    my $helpCmdCacheFile = "/tmp/htext.$ENV{USER}." . $cmdCopy;
+    if (!-e "$helpCmdCacheFile") {
+        ::debug ("Caching to file: ".$helpCmdCacheFile);
+        open(my $CMD, "$helpCmd$cmd $helpOpt|") or return "$helpCmd$cmd $helpOpt";
+        open(my $CACHE, ">$helpCmdCacheFile");
+        while(<$CMD>) { print $CACHE $_ }
+    } 
+    $cmd = 'cat "' . $helpCmdCacheFile . '"';
+}
+
+sub Open {
+    my ($cmd, $helpOpt) = @_;
+       $cmd = HelpCmdFromCache($cmd, $helpOpt);
+    my $handle;
+    open($handle, $cmd.'|' );
+    return $handle;
+}
+
+sub IsSubcommand {
+    my ($cmd, $helpOpt, $find) = @_;
+    $cmd eq $find && return 0;
+    my (@options, $opt);
+    my $stream  =  Open($cmd, $helpOpt);
+       $stream  || return;
+    while(<$stream>) {
+        ($opt = Opts::Find::Command(\$_)) &&  push @options, $opt;
+    }
+    my @result = grep {$_->{name} eq $find} @options;
+    return scalar(@result)
+}
+
+sub GuessLastSubcommand {
+    my $cliArgs = $_[0];
+    my $cnt = 0;
+    my $j = -1;
+    my $i = scalar(@$cliArgs)-1;
+    for(; $i > 0; $i--){
+        if (@$cliArgs[$i] && @$cliArgs[$i] !~ /^-/) {
+            $cnt++; 
+            ::debug ("SEEK: Found index: $i");
+            $cnt == 1 && ($j = $i);
+            $cnt == 2 && last
+        }
+    }
+
+    my $findSubCommand = @$cliArgs[$j];
+    return $findSubCommand, $i, $j;
+}
+
+sub HelpCmdForSubcommand {
+    my ($cmd, $helpOpt, $cliArgs) = @_;
+    my ($candidate, $prevCandidateCmdPos, $candidatePos) = GuessLastSubcommand($cliArgs);
+    $candidatePos < 0 && HelpCmdFromCache ($cmd, $helpOpt) && return { cmd => $cmd, envns => $cmd };
+
+    my ($candCopy, $i, $j) = ($prevCandidateCmdPos, $candidatePos);
+    my @toBeChecked;
+    while ($i != 0) {
+        ($candCopy, $i, $j) = GuessLastSubcommand([@$cliArgs[0..$i]]);
+        push(@toBeChecked, $j);
+    }
+    my @validCmds;
+    push(@validCmds, $cliArgs->[$i]);
+
+    my $lastSubCmdPos;
+    my $subcmd       = join(' ', @$cliArgs[0..$i]);
+    my $candidatePos = pop @toBeChecked;
+    my $candidate    = $cliArgs->[$candidatePos];
+    my @cliArgs      = @$cliArgs;
+    while ($candidatePos || scalar(@toBeChecked)>0) {
+        if (IsSubcommand($subcmd, $helpOpt, $candidate)) {
+            push @validCmds, $candidate;
+            $subcmd        = join(' ', grep {$_!~/^-/ && $_} @cliArgs[0..$candidatePos]);
+            $lastSubCmdPos = $candidatePos;
+        }
+        splice @cliArgs, $candidatePos, 1;
+        $candidatePos = pop @toBeChecked;
+        $candidate    = $cliArgs->[$candidatePos];
+    }
+    $lastSubCmdPos == @$cliArgs - 1 && pop @validCmds;
+
+    $cmd = join(' ', @validCmds);
+    return {cmd => $cmd, envns => join('_', map { my $a=$_; $a=~s/-/_/g; $a } @validCmds), (@validCmds > 1 &&
+                subcmd => { name => $validCmds[-1], pos => $lastSubCmdPos } 
+            )};
+}
+
+sub GuessLastOption {
+    my $cliArgs = $_[0];
+    my $cnt = 0;
+    my $i = scalar(@$cliArgs)-1;
+    for(; $i > 0; $i--){
+        ::debug ("CHECK: SEEK: $i -> '@$cliArgs[$i]'");
+        if (@$cliArgs[$i] && @$cliArgs[$i] =~ /^-/) {
+            ::debug ("CHECK: SEEK: Found index: $i");
+            my $arg = $cliArgs->[$i];
+            $arg =~ s/^([^\\]*?)=.*/$1/;
+            ::debug ("CHECK: SEEK: Result: $i -> $arg");
+            return ($arg, $i);
+        }
+    }
+    return;
+}
+
+sub LastOption {
+    my ($cliArgs, $subcmdpos, $optDefs) = @_;
+    ::debug("Subcmdpos: $subcmdpos");
+    ::debug("Args: [".join('] [', @$cliArgs)."]");
+    my ($lastOptName, $lastOpt);
+    my $i = scalar(@$cliArgs)-1;
+    my $optIdx;
+    while ($i) {
+        ::debug ("CHECK: SEEK : ".($i)." -> '@$cliArgs[$i]'");
+        ($lastOptName, $optIdx) = GuessLastOption([@$cliArgs[0..$i--]]);
+        $optIdx <= $subcmdpos && do { ::debug ("optIdx to low: $optIdx <= $subcmdpos") ; return };
+        ::debug ("CHECK: GUESS: $lastOptName");
+        $lastOptName || next;
+        $optIdx == @$cliArgs - 1 && next;
+        my @matchingOptDefs = grep { ($_->{name} eq $lastOptName ) && $_  } @$optDefs;
+        ::debug ("CHECK: GUESS: OPTIDX: $optIdx CLIARGS: ".(@$cliArgs - 1));
+        # @matchingOptDefs > 1 && return;
+        $lastOpt = $matchingOptDefs[0];
+        ::debug ("CHECK: SEEK: RESULT: ".($i)." -> '".($lastOpt && $lastOpt->{name})."'");
+        $lastOpt && return ($lastOpt, $optIdx);
+    }
+}
+
+# ------------------------------------------------------------------------------------------
+package Opts::Store;
+
+sub new { my ($class) = @_;
+    my  $self = { allopts   => [],
+                  optcache  => {},
+                  optbuffer => [],
+                };
+    return bless($self, $class);
+}
+
+sub allOpts  { my $me = shift; return $me->{allopts} }
+sub optCache { my $me = shift; return $me->{optcache} }
+sub inCache  { my ($me, $opt) = @_; exists $me->{optcache}->{$opt->{name}} }
+sub toCache  { my ($me, $opt) = @_; $me->{optcache}->{$opt->{name}} = $opt }
+sub store    { my ($me, $opt, $linenum) = @_;
+    $opt->{lineNum} = $linenum;
+    do { ( ! $opt || $me->inCache($opt) ) && next;
+        ::debug("Storing: $opt->{name}");
+        push @{$me->{allopts}}, $me->toCache($opt);
+    }
+    while($opt = $opt->{next});
+}
+
+sub knownOptWithDescription { my ($me, $opt, $linenum) = @_;
+    my $prevOpt;
+    for (my $prevOptIdx = @{$me->{allopts}}-2; $prevOptIdx != 0; $prevOptIdx--) {
+        $prevOptIdx < 0 && last;
+        $prevOpt = $me->{allopts}->[$prevOptIdx];
+        $prevOpt->{type} eq 'CMD' && next;
+        $prevOpt->{pad2Desc} && return $prevOpt;
+    }
+}
+
+sub tryToFixDescription { my ($me, $opt, $line, $linenum) = @_;
+    if ($opt && !$opt->{pad2Desc}) {
+        my $descOpt = $me->knownOptWithDescription($opt, $linenum);
+        $descOpt && $opt->copyDescription($descOpt) 
+            && return;
+
+        my $nextOpt = Opts::Find::DescLine(\$_);
+        $nextOpt && $opt->copyDescription($nextOpt) 
+            && return;
+
+        push(@{$me->{optbuffer}}, $opt);
+    }
+    elsif ($opt && $opt->{pad2Desc} && @{$me->{optbuffer}}) {
+        foreach my $bopt (@{$me->{optbuffer}}) {
+            $bopt->copyDescription($opt);
+        }
+        $me->{optbuffer} = []
+    }
+}
+
+# ------------------------------------------------------------------------------------------
+package helptext::completer;
+use Getopt::Long;
+
+my $helpOpt;
+my $comp_point;
+my $comp_line;
+
+sub usage {
+    my $OUT = (shift || *STDOUT);
+    require FindBin;
+    my $file = $FindBin::RealBin.'/'.$FindBin::RealScript;
+    open my $script, '<'.$file or die "Could not open: $file\n";
+    my $foundEnd = 0;
+    while (<$script>) {
+        if(!$foundEnd){
+            $_ =~ /^\s*__END__\s*/ 
+              && ($foundEnd = 1);
+            next;
+        }
+        $_ =~ /^\s*__DATA__\s*/ && return;
+        $_ =~ s/\$\{FindBin::Script\}/$FindBin::Script/g;
+        print $OUT $_;
+    }
+}
+
+sub find_options{
+    my ($cliArgs, $command) = @_;
+
+    my $fullCmd =  HelptextCommand::HelpCmdForSubcommand($command, $helpOpt, $cliArgs);
+
+    $fullCmd->{cmd} ne $command && init ($fullCmd->{envns}, $command);
+    ::debug("Full cmd: $fullCmd->{cmd}");
+
+    my $stream  =  HelptextCommand::Open($fullCmd->{cmd}, $helpOpt);
+       $stream  || return;
+
+    my $optstore = new Opts::Store;
+    my ($opt, $linenum);
+    while(<$stream>) {
+        $optstore->tryToFixDescription($opt, \$_, $linenum++);
+        $opt = Opts::Find::AnyOpt(\$_, $linenum); 
+        $opt && $optstore->store($opt) && next;
+        Opts::Find::EmptyLine(\$_);
+    }
+
+    return ($optstore->allOpts(), $optstore->optCache(), $fullCmd)
+}
+
+sub redirect {
+    my ($results, $fullCmd, $cliargs, $opt, $msg) = @_;
+    ::debug("Check redirect 01: ".  @$results);
+    ::debug("Check redirect 01: cmdctx: ".  ($fullCmd->{cmd}));
+    ::debug("Check redirect 01: envns : ".  ($fullCmd->{envns}));
+    ::debug("Check redirect 01: opt   : ".  ($opt ? $opt->{name} . ' ' . $opt->{args} . ' ' . $opt->{numArgs} . ' ' . $opt->{needsArgs} : 'none'));
+    @$results && return $results;
+    
+    ::debug("Check redirect 02: ".  @$results);
+    my $redirectVar;
+    if($opt) {
+        ::debug("Check redirect 02.1: $opt->{name} $opt->{needsArgs}");
+        ! $opt->{needsArgs} && return $results;
+        $redirectVar = $opt->{name};
+    } else {
+        ::debug("Check redirect 02.2: $fullCmd->{envns}");
+        $fullCmd->{subcmd} && @$cliargs - $fullCmd->{subcmd}->{pos} > 2  && return $results;
+        $redirectVar = $fullCmd->{envns};
+    }
+    ::debug("Check redirect: $msg: ". $redirectVar);
+    my $redirect = main::redirectOptFromEnv($redirectVar => "", $fullCmd->{envns}, $cliargs->[0]);
+    ::debug("Check redirect: found: ". $redirect);
+    $redirect && do {
+        @$cliargs = grep { $_ ne '=' } @$cliargs;
+        my @cmd = split(/\s+/, $fullCmd->{cmd});
+        my $cnt = scalar(@cmd) + ($opt && $opt->{numArgs}) + 1;
+        return [ map {new Option({name => $_})} 
+                    grep { $_ } 
+                    (
+                        '<<HT_REDIRECT>>'
+                        , $cnt
+                        , $redirect
+                        , @cmd
+                        , $opt && $opt->{cliindex} 
+                               && map { $cliargs->[$_] } ($opt->{cliindex}..@$cliargs)
+                    )
+               ];
+    };
+    return $results;
+}
+
+sub needs_args { my ($opt, $optIndex, $cliArgs, $currArg) = @_;
+    my $prevArg = $cliArgs->[-2];
+    ::debug("check 0: $opt->{hasOptArgs} [$prevArg] [$currArg]");
+    $opt->{hasOptArgs} && $prevArg ne '=' && ($currArg eq '' || $currArg =~ /^\\?-/)
+        && return 0;
+    ::debug("check 1");
+    ($currArg eq '' || $currArg eq '=') && do {
+        ::debug("check 2");
+        $prevArg eq '='             && return $opt->{numArgs};
+        ::debug("check 3");
+        $prevArg eq $opt->{name}    && return $opt->{numArgs};
+    };
+    ::debug("check 4");
+    my $missingArgs  = $opt->{numArgs} - (@$cliArgs-1-$optIndex);
+    ::debug("missing arg count: $missingArgs");
+    return $missingArgs < 0 ? 0 : ++$missingArgs
+}
+
+sub list_matches {
+    my $cliArgs = $_[0];
+    my $prevArg = $cliArgs->[-2];
+    my $currArg = quotemeta($cliArgs->[-1]);
+    my $command = @$cliArgs[0];
+    ::debug ("ARGV: [". join('] [', @$cliArgs).']');
+    ::debug ("ARGV: CURARG: $currArg");
+
+    # Previous arg is -- => don't return anything
+    ($prevArg eq '--') && do {
+        ::debug ("PREV ARG STOPS COMPLETION: $prevArg\n");
+        exit;
+    };
+
+    my ($allOpts, $optcache, $fullCmd)    = find_options $cliArgs, $command, $helpOpt;
+    ::debug("We found ".scalar(@$allOpts)." options.");
+    my $filteredOpts = Opts::Filter::ProbableCandidates(\@$allOpts, $command);
+    ::debug("After filters: ".scalar(@$filteredOpts)." options remaining.");
+    ::debug("Filtered opts: [".join('] [', map { $_->{name} } @$filteredOpts)."]");
+    my ($opt, $i) = HelptextCommand::LastOption($cliArgs, 
+        ($fullCmd->{subcmd} && $fullCmd->{subcmd}->{pos}), $filteredOpts);
+
+    ::debug("Check step 00: $opt $i");
+    if ($opt) {
+        $opt->{cliindex} = $i;
+        ::debug("Last option: $opt->{name}");
+         ($opt->{needsArgs} = needs_args($opt, $i, $cliArgs, $currArg))
+         && ::debug ("Last option: $opt->{name} needs args") &&
+            return redirect([], $fullCmd, $cliArgs, $opt, "OPT NEEDS ARGS");
+        
+    }
+
+    ::debug("Check step 01: ".scalar(@$filteredOpts));
+    main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) && return 
+        redirect([grep { $_->{name} =~ /^$currArg/ && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "SHOW ALL");
+
+    ::debug("Check step 02");
+    !$currArg && return 
+        redirect([grep { $_->{isCmd} && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO CUR ITEM");
+
+    ::debug("Check step 03");
+    return redirect([grep { $_->{name} =~ /^$currArg/ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO MATCH");
+}
+
+sub get_opts {
+    GetOptions(
+    'p|comp-point=i'     => \$comp_point,
+    'l|comp-line=s'      => \$comp_line,
+    'd|log-debug=s'      => \&::init_debug_log,
+    't|trace'            => \&::trace,
+    'h|help'             => sub {  ::main::usage ; exit 0  }
+    ) 
+}
+
+sub init { my ($appname, $mainapp) = (uc($_[0]), uc($_[1]));
+    $helpOpt = main::fromEnv(HELPOPT => '--help', $appname, $mainapp);
+    HelptextCommand::init($appname, $mainapp);
+    Opts::Find::init     ($appname, $mainapp);
+    Opts::Filter::init   ($appname, $mainapp);
+}
+
+sub main {
+    ::register_usage(\&usage);
+    get_opts || do { ::main::usage ; exit 1 } ;
+
+    @ARGV < 3 && ::error("Missing mandatory arguments.");
+    
+    my $curCliPos = shift @ARGV;
+    my $curword   = $ARGV[$curCliPos];
+    my $currchar;
+    ::debug("curCliPos: $curCliPos");
+    init $ARGV[0];
+
+    $comp_point && $comp_line && do {
+        $currchar = substr($comp_line, $comp_point, 1);
+        ::debug("Preparing ARGV: ".join(' ', @ARGV));
+        my $cliPosWord = index($comp_line, $curword.' ', $comp_point);
+        if ($cliPosWord > -1) {
+            ::debug("comp_point $comp_point before $curword");
+            $curword !~ /^-{1,2}$/ && $cliPosWord - $comp_point <= 1 && ($ARGV[$curCliPos] = "");
+        } else {
+            my $searchFrom = 0;
+            while(($cliPosWord = index($comp_line, $curword, $searchFrom)) > -1) {
+                $cliPosWord == $searchFrom && last;
+                $searchFrom = $cliPosWord;
+                ::debug("Searching $curword in comp_line. Current guess: found it at pos $cliPosWord.");
+                $comp_point > $cliPosWord  && $comp_point < $cliPosWord + length($curword) && do {
+                    $ARGV[$curCliPos] = substr($curword, 0, $comp_point-$cliPosWord);
+                    ::debug("comp_point $comp_point within $curword. Cutting it to $ARGV[$curCliPos].");
+                    last;
+                }
+            }
+        }
+        ::debug("Prepared ARGV : ".join(' ', @ARGV));
+    };
+
+    my $result = list_matches([@ARGV[0..$curCliPos]]);
+
+    ::debug ("RESULT: 1: ", scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
+
+    if(!$ENV{HT_SHOW_ARGS} || @$result == 1) {
+        my $resval   = $result->[0]->{name};
+        my $redirect = $resval eq '<<HT_REDIRECT>>';
+        my $suffix   = $resval eq '' || $redirect || $currchar =~ /^\s?$/ ? '' : ' ';
+        print(map{sprintf("%s$suffix\n",$_->{name})}@$result);
+    } else {
+        print(map{sprintf("%s %s\n",$_->{name}, $_->{args})}@$result);
+    }
+    ::debug_end();
+    exit scalar(@$result)?0:1
+}
+
+$ENV{HT_COMPLETER_UNITTEST} || main();
+
+1;
+
+__END__
+
+Usage: ${FindBin::Script} [OPTIONS] ARGS...
+
+ Arguments:
+  -d|--log-debug LOGFILE  dump debug messages to the given logfile.
+  -t|--trace              activate tracing (together with -d).
+  -h|--help               print this help text.
+
+ Global environment variables:
+   HT_HELPOPT               Specify the option to be used in order to
+                            obtain an app's help text. When set to ':man'
+                            we fallback to manpages. 
+                            (Default: --help)
+   HT_USE_CACHE             Some app's are a bit sluggish. Therfore we
+                            use a cache for the app's help texts. Set 
+                            this to 0 to deactivate caching.
+                            (Default: 1)
+   HT_SHOW_ARGS             To see also the arguments for options in the
+                            reply, set this variable to 1.
+                            (Default: 0)
+   HT_SHOW_ALL              Only (sub-)commands are suggested in the reply
+                            by default. To see options a user must provide
+                            at least a '-'. To see also options without
+                            using a '-' set this variable to 1.
+                            (Default: 0)
+   HT_PADDING_(MIN|MAX)     Adjust the number of blanks that are to be 
+                            assumed to be found before an option's name.
+                            See section "Opt Regex environment variables"
+                            for more information.
+                            (Default: MIN=1 MAX=10)
+   HT_OPTARG_DIST_(MIN|MAX) Adjust the number of blanks that are to be 
+                            assumed to be found before an option's first.
+                            argument See section "Opt Regex environment 
+                            variables" for more information.
+                            (Default: MIN=1 MAX=1)
+   HT_MAX_CMD_DIST          As the detection of commands is error prone 
+                            when based on single lines only, we use a set
+                            of different filters in order to discard probably
+                            faulty detections. One of these filters uses the
+                            line distance between possible commands. A command
+                            that seems isolated is discarded. This variable
+                            let's you adjust the maximal line distance 
+                            between two commands.
+                            (Default: 5)
+
+ App specific environment variables:
+   HT_APP_{appname}_HELPOPT
+   HT_APP_{appname}[_{command}]+_HELPOPT
+   HT_APP_{appname}_PADDING_MIN
+   HT_APP_{appname}[_{command}]+_PADDING_MIN
+   HT_APP_{appname}_PADDING_MAX
+   HT_APP_{appname}[_{command}]+_PADDING_MAX
+   HT_APP_{appname}_HELPOPT
+   HT_APP_{appname}[_{command}]+_OPTARG_DIST_MIN
+   HT_APP_{appname}_HELPOPT
+   HT_APP_{appname}[_{command}]+_OPTARG_DIST_MAX
+
+  Opt Regex environment variables:
+                                                                   optional
+    Default: \s{1,10}                                           (can appear on 
+  HT_PADDING_(MIN|MAX)              optional                       next line)
+    ┌────┴────┐                    ┌────┴───┐                   ┌──────┴──────┐
+    ┌─────────┬──────────┬─────────┬──────────────────────────────────────────┐
+    │ Padding │ Opt-Name │ ArgDist │ Optarg │ OptDelim │ Optarg │ Description │
+    └─────────┴──────────┴─────────┴──────────────────────────────────────────┘
+                         └────┬────┘        └─────────┬─────────┘
+                           optional                (0...N)
+                      (can also be '=')
+                       Default: \s{1,5}
+                   HT_OPTARG_DIST_(MIN|MAX)
+              └────────────────────────┬────────────────────────┘
+                                    (1...N)
+    
+__DATA__
+

@@ -1,0 +1,94 @@
+#!/usr/bin/env perl
+$ENV{HT_OPTARG_DIST_MIN} =  1;
+$ENV{HT_OPTARG_DIST_MAX} =  5;
+$ENV{HT_PADDING_MIN}     =  1;
+$ENV{HT_PADDING_MAX}     = 10;
+
+package Use;
+sub As {  *{$_[1]=~/^\.(.*)/ ? (caller(0))[0]."::$1" : $_[1]} = *{$_[0]} }
+
+package unittests;
+use strict;
+use warnings;
+use FindBin;
+use Test::More;
+use lib ("$FindBin::Bin", "$FindBin::Bin/..");
+
+sub load {
+    $_[0] =~ /^#/ && return;
+    delete $INC{$_[0]};
+    require $_[0];
+}
+
+sub load_completer {
+    delete $INC{"helptext-completer"};
+    $ENV{HT_COMPLETER_UNITTEST} = 1; 
+    require "helptext-completer";
+    helptext::completer::init();
+}
+
+sub exit_on_fatal { 
+    TestFlow::fatal() && do { 
+        done_testing; TestFlow::exit_fatal() 
+    };
+}
+
+sub get_basic_modules { no warnings; qw(
+    lib/test-flow-utils
+    lib/create-testdata-helper
+    test-testdata-helper
+)}
+
+sub get_test_modules { no warnings; qw(
+    test-helptextcommand
+    test-opts
+    test-commands
+    test-optarg-detection
+    test-fix-description
+    test-opt-filters
+    test-redirection
+    test-output
+    test-real-world-examples
+)}
+
+sub usage {
+    print <<~EOT;
+    Usage:
+      run-tests [command] [TOOLARGS]
+
+     Commands:
+
+      help          print this help.
+      stresstest    execute a high number of random tests.
+
+     TOOLARGS are arguments passed to helptest-completer, e.g. to enable 
+     the debug log via -d <debug-file>.
+
+    EOT
+    exit ($_[0] || 0)
+}
+
+sub MAX_REPS { return 25 }
+
+# check cli arguments
+my $command = ($ARGV[0] || '');
+if ($command eq "help") {
+    usage;
+} elsif ($command eq "stresstest") {
+    no warnings;
+    *MAX_REPS = sub  { return 10000 };
+    shift;
+} 
+
+# init modules to be tested
+unittests::load_completer;
+main::register_usage(\&unittests::usage);
+helptext::completer->get_opts()  || do {usage 1};
+unittests::load_completer;
+
+# load tests
+for(get_basic_modules) { load "$_.pm" }
+exit_on_fatal;
+for(get_test_modules ) { load "$_.pm" }
+
+done_testing();

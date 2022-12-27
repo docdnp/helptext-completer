@@ -1,0 +1,206 @@
+# TODO
+
+## MVP
+* [ ] Tool delivers all short opts found in help texts
+  - [X] pip
+  - [ ] git
+  - [X] ls 
+  - [X] sort (man)
+  - [X] cat (man) => `cat --help` scheitert
+* [ ] Tool delivers all long opts found in help texts
+  - [X] pip
+  - [ ] git
+  - [ ] ls 
+  - [X] sort (man)
+  - [X] cat (man) => `cat --help` scheitert
+* [ ] Tool delivers all sub commands found in help texts
+  - [ ] pip
+  - [ ] git
+* [ ] Tool delivers all sub commands' sub commands found in help texts
+* [ ] Tool delivers all short and long opts for subcommands found in help texts
+  - [X] pip
+  - [ ] git
+* [X] User can define **at least one** global option to be used for querying the help text
+  - [X] man-pages are basically supported
+  - [ ] man-pages are well supported
+* [ ] Das Tool liefert keine falschen Commands
+  - [X] pip
+  - [ ] git
+  - [ ] ls 
+  - [X] sort (man)
+  - [X] cat (man) => `cat --help` scheitert
+* [X] Tool stops completion for options that need arguments
+* [X] Tool restarts completion for options that have all the arguments they need
+
+## Nächste konkrete Schritte:
+* [ ] Quality: Github Repo
+  - [X] Creat
+  - [ ] Push
+  - [ ] CI
+  - [ ] README
+  - [X] LICENSE => Name
+* [ ] Quality: Test ARGV preparation
+* [ ] Quality: Test output suffix
+* [ ] Refactoring/Analysis: HelpCmdForSubcommand seems too complicated and delivers too much. Can this be simplified?
+* [ ] Feature/Optimize: If `:man` => don't look for subcommands
+* [ ] Refactoring/Analysis: Simplify the way to read environment vars
+* [ ] Refactoring/Analysis: Return values: find_options
+* [ ] Feature: Support zsh completion (similar to pip)
+* [ ] Feature: Support fish completion (similar to pip)
+* [ ] Quality: Integration tests on app level
+* [ ] Quality: User documentation
+  + [X] ENV Variablen with "figure"
+  + [ ] More ENV vars
+    - [ ] HT_REDIRECT_*
+    - [ ] HT_APP_*
+  + [ ] Caveats, known issues and workarounds
+* [ ] Feature: Script provides bash completion function
+* [ ] Feature: Script provides zsh completion function
+* [ ] Feature: Script provides fish completion function
+* [ ] Refactoring: Modules to their own files?
+* [ ] Refactoring: Clean up bash completion function
+  - [X] Rename
+  - [X] Cleanup
+  - [ ] Extra DEBUG function?
+* [ ] Analysis: Support options as in `man sort`
+  + Special form of optional arguments?
+  + [ ] `-c, --check, --check=diagnose-first`
+  + [ ] `-C, --check=quiet, --check=silent`
+* [ ] Feature: Support git-like options
+  - [X] Optional assignment argument `=> --decorate[=short|full|auto|no]`
+  - [X] Long/Long => `--no-decorate, --decorate[=short|full|auto|no]`
+  - [ ] Numeric Short => `-<number>, -n <number>, --max-count=<number>`
+  - [X] double-flags `--[no-]use-mailmap`
+* [ ] Feature: User can extend or change option delimiters
+  - [ ] per app/cmd to be complete? Using ENV?
+* [ ] Feature: Tool supports arguments for subcommands if e.g.: `command-1 <ARG>`
+* [ ] Feature: Support find-like arguments
+  - [ ] NoArgspace args for short opts => `-Olevel`
+  - [ ] One-dash long opts `-daystart`
+  - [ ] Long/long `-help, --help`
+* [ ] Quality: Developer documentation
+  - [ ] Goals and purpose
+  - [ ] Architecture
+  - [ ] Usage
+  - [ ] Examples
+* [ ] **Thoughts:** Refactoring: package HelptextCommand
+  - [ ] **Thoughts:** Function HelpCmdFromCache does two different things:
+    + Evaluate help-command, e.g. ':man'
+    + Read / Write helptext cache
+  - [ ] **Thoughts:** Functions Open and HelpCmdFromCache could or should be one package
+  - [ ] **Thoughts:** Functions IsSubcommand, GuessLastSubcommand and HelpCmdForSubcommand could or should be one package
+  - [ ] **Thoughts:** Functions GuessLastOption and LastOption could or should be one package
+* [ ] Quality/Analysis: deployment:
+  - [ ] Flatpak?
+  - [ ] As "service" with WebAPI in Docker? 
+* [X] Feature: Support bash COMP_POINT
+* [X] Feature: Support additional env vars:
+  + [X] HT_REDIRECT_{APP}_SUBCOMMANDS__{OPT} for all commands
+* [X] Quality: Unittests: Redirect
+* [X] Quality: Unittests: HelpCmdForSubcommand
+* [X] Quality: Unittests: Last Option
+* [X] Feature: User can specify way to query helptexts per app
+  - [X] Using ENV?
+* [X] Feature: User can specify way to query helptexts per subcommand
+* [X] Feature: User can extend completion, e.g. to privide arguments for options
+* [X] Feature: Caching of help texts
+  - [X] User can de-/activate caching 
+  - [ ] User can configure where to cache?
+* [X] Feature: Support args for short opts, if e.g.: `-s, --myopt <ARG>`
+  + [X] Quality: Extend unit tests
+* [X] Feature: Support args for short opts, if e.g.:  `-s=...`
+  + [X] Quality: Extend unit tests
+* [X] Feature: Feature: Support args for short opts, if e.g.:  `-s <ARG>`
+  + [X] Quality: Unittests anpassen
+* [X] Feature: Feature: Support args for long opts, if e.g.: : `--lopt, -l <ARG>`
+  + [X] Quality: Extend unit tests
+* [X] Feature: Support args for long opts, if e.g.: `--lopt <ARG>`
+  + [X] Quality: Extend unit tests
+* [X] Feature: Support args for long opts, if e.g.:  `--lopt=...`
+  + [X] Quality: Extend unit tests
+* [X] Feature: Support different arg patterns e.g.: `<ARG> [ARG] (ARG) {ARG} ARG`
+  + [X] Quality: Extend unit tests
+* [X] Refactoring: Extraxt function needs_option
+  + [X] Quality: Extend unit tests
+* [X] Feature: Support environment variables per subcommand
+* [X] Feature: Support environment variables per app
+* [X] Feature: Support bash completion if cursor is not at end of line
++ [X] Feature: Support option: `HT_NO_COMMANDS` => don't search for or output subcommands
++ [X] Feature: Support options to control behavior of `Opts::Filter`
+* [X] Analysis: Support `cat --help`. Currently the following happens:
+  + These filters are applied: `KeepByMajorityOfEquallyIndented` und `KeepByMajoritysDescrPadding`
+  + [X] This is filtered `--help     ...description...`
+  + [X] This is filtered `--version  ...description...`
+* [X] Refactoring: Use Option Interface where applicable
+  - [X] Shortopts + Tests
+  - [X] Longopts + Tests
+  - [X] Commands + Tests
+* [X] Refactoring: Option Interface delivers
+  - [X] number of arguments an option expects
+  - [X] padding from start of line to start of description text
+  - [X] Opts::Filter use Option interface
+* [X] Feature: Support `man` 
+* [X] Feature: Optional arguments for options
+* [X] Feature: `--[no]-OPTs` => two options
+* [X] Refactoring: Don't store emptylines => use line numbers
+* [X] Feature: ENV: HT_LINEDIFF_MAX_CMDS:
+  - Max number of lines between to subcommand definitions
+* [X] Quality: additional heuristics, so that descriptions of options are not detected as subcommand definitions
+* [X] Bugfix: Fix recursio of `is_sub_command`
+* [X] Refactoring: Re-design and rewrite unit tests for
+  - [X] Short opts
+  - [X] Long opts 
+  - [X] Subcommands 
+* [X] Quality: Test output options
+  + [X] Default : '' => only subcommands
+  + [X] Nur Opts: '-' => opts
+  + [X] LastOpt has 1 arg: --OPT '' => ''
+  + [X] LastOpt has 1 arg: --OPT '-' => ''
+  + [X] LastOpt has 1 arg: --OPT 'A..' => ''
+  + [X] LastOpt has 1 arg: --OPT 'A..' '' => only subcommands
+  + [X] LastOpt has 2 args: --OPT 'A..' => ''
+  + [X] LastOpt has 2 args: --OPT 'A..' '' => ''
+  + [X] LastOpt has 2 args: --OPT 'A..' 'B..' => ''
+  + [X] LastOpt has 2 args: --OPT 'A..' 'B..' '' => only subcommands
+  + [X] LastOpt has opt. arg: --OPT '' => only subcommands
+  + [X] LastOpt has opt. arg: --OPT 'ABC' '' => only subcommands
+  + [X] LastOpt has opt. arg: --OPT '-' => Opts
+  + [X] LastOpt has opt. arg: --OPT 'A..' => ''
+  + [X] HT_SHOW_ALL
+    - [X] Default : '' => Commands + Opts
+    - [X] LastOpt has 1 arg: --OPT 'A..' '' => Commands + Opts
+    - [X] LastOpt has 2 args: --OPT 'A..' '' => Commands + Opts
+    - [X] LastOpt has opt. arg: --OPT '' => Commands + Opts
+    - [X] LastOpt has opt. arg: --OPT 'A..' '' => Commands + Opts
+* [X] Feature/Refactoring: Configure option filters
+  + [X] HT_MAX_CMD_DIST
+    - [X] > HT_MAX_CMD_DIST => drop
+    - [X] < HT_MAX_CMD_DIST => keep
+  + [X] Simplify
+* [X] Quality/Refactoring: all unit tests use their own packages
+* [X] Quality/Refactoring: heuristic for missing descriptions
+  + [X] Extract function
+  + [X] Find desctiptions that follow option definitions
+  + [X] Find desctiptions in the following line
+* [X] Feature: Detect optional arguments
+* [X] Refactoring: Unify long- and short opt detection
+* [X] Feature: Support more than two option definitions per line
+  + [X] Static test data
+  + [X] Dynamic test data
+  + => Lösung: 3 beliebiege Optionen
+* [X] Quality: Random Tests
+  - [X] for detection of short opt definitions
+  - [X] for detection of long opt definitions
+* [X] Quality: Introduce stress tests: CLI arg of unit test executer allows to increase the number of tests with random test data.
+
+
+# Helpers
+Smoke-Test:
+```
+./helptext-completer -d /tmp/X 2 pip ""
+```
+Complete for **ANY_APP**:
+```
+. helptext-completer.sh
+complete -F _helptext_completer ANY_APP
+```
