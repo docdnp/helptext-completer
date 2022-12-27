@@ -36,7 +36,7 @@
 * [ ] Quality: Github Repo
   - [X] Create
   - [X] Push
-  - [ ] CI
+  - [X] CI
   - [ ] README
   - [X] LICENSE => Name
 * [ ] Quality: Test ARGV preparation
