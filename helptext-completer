@@ -5,6 +5,8 @@ package main;
 sub fromEnv {  my  ($envvar, $defaultval, $envns, $mainapp) = @_;
     $envns = defined $envns ? uc($envns) : uc($ARGV[0]);
     $mainapp = uc($mainapp);
+    $envns   =~ s/-/_/g;
+    $mainapp =~ s/-/_/g;
     my $ret = ( $envns   && $ENV{'HT_APP_'.$envns.'_'.$envvar} 
              || $mainapp && $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar}
              || $ENV{'HT_'.$envvar} 
@@ -13,9 +15,11 @@ sub fromEnv {  my  ($envvar, $defaultval, $envns, $mainapp) = @_;
 }
 
 sub redirectOptFromEnv {  my  ($optname, $defaultval, $envns, $mainapp) = @_;
-    $envns = uc($envns);
+    $envns   = uc($envns);
     $mainapp = uc($mainapp);
     $optname = uc($optname);
+    $envns   =~ s/-/_/g;
+    $mainapp =~ s/-/_/g;
     $optname =~ s/-//g;
     sub env { defined $ENV{$_[1]} && do { ${$_[0]}=$ENV{$_[1]}; 1 } }
     my $ret;
@@ -628,22 +632,38 @@ my $helpOpt;
 my $comp_point;
 my $comp_line;
 
-sub usage {
-    my $OUT = (shift || *STDOUT);
+sub extractFromDataSection { my $starttag = shift;
+    my @data;
     require FindBin;
     my $file = $FindBin::RealBin.'/'.$FindBin::RealScript;
+    my $me   = $FindBin::Script;
+    $me =~ s/-/_/g;
     open my $script, '<'.$file or die "Could not open: $file\n";
-    my $foundEnd = 0;
+    my $foundStartTag = 0;
     while (<$script>) {
-        if(!$foundEnd){
-            $_ =~ /^\s*__END__\s*/ 
-              && ($foundEnd = 1);
+        if(!$foundStartTag){
+            $_ =~ /^\s*__${starttag}__\s*/ 
+              && ($foundStartTag = 1);
             next;
         }
-        $_ =~ /^\s*__DATA__\s*/ && return;
+        $_ =~ /^\s*__[A-Z_]+__\s*/ && return \@data;
+        $_ =~ s/\$\{uc\(FindBin::Script\)\}/uc($me)/eg;
+        $_ =~ s/\$\{lc\(FindBin::Script\)\}/lc($me)/eg;
         $_ =~ s/\$\{FindBin::Script\}/$FindBin::Script/g;
-        print $OUT $_;
+        push(@data, $_);
     }
+    return \@data;
+}
+
+sub usage { my $OUT = (shift || *STDOUT);
+    print $OUT @{extractFromDataSection('USAGE')};
+    shift && print $OUT @{extractFromDataSection('USAGE_LONG')};
+}
+
+sub printCompletion { my $shell = uc(shift);
+    $shell =~ /^(?:bash|zsh)$/i 
+        || ::error("Unknown shell '$shell'. Use 'bash' or 'zsh'.");
+    print @{extractFromDataSection($shell.'_COMPLETION')};
 }
 
 sub find_options{
@@ -761,6 +781,7 @@ sub list_matches {
     }
 
     ::debug("Check step 01: ".scalar(@$filteredOpts));
+    ::debug("SHOW ALL?".main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) );
     main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) && return 
         redirect([grep { $_->{name} =~ /^$currArg/ && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "SHOW ALL");
 
@@ -778,7 +799,9 @@ sub get_opts {
     'l|comp-line=s'      => \$comp_line,
     'd|log-debug=s'      => \&::init_debug_log,
     't|trace'            => \&::trace,
-    'h|help'             => sub {  ::main::usage ; exit 0  }
+    's|completion=s'     => sub { printCompletion $_[1]; exit 0 },
+    'h|help'             => sub { main::usage; exit 0  },
+    'H|help-all'         => sub { main::usage(*STDOUT, 1); exit 0  }
     ) 
 }
 
@@ -794,7 +817,6 @@ sub main {
     get_opts || do { ::main::usage ; exit 1 } ;
 
     ::debug("Preparing ARGV: [".join('] [', @ARGV)."]");
-    # exit
     @ARGV < 3 && ::error("Missing mandatory arguments.");
     
     my $curCliPos = shift @ARGV;
@@ -848,14 +870,21 @@ $ENV{HT_COMPLETER_UNITTEST} || main();
 1;
 
 __END__
-
+__USAGE__
 Usage: ${FindBin::Script} [OPTIONS] ARGS...
 
  Arguments:
-  -d|--log-debug LOGFILE  dump debug messages to the given logfile.
-  -t|--trace              activate tracing (together with -d).
-  -h|--help               print this help text.
+  -p|--comp-point POS      set the current cursor position within the
+                           current line (see --comp-line).
+  -l|--comp-line  LINE     set the current line.
+  -s|--completion SHELL    helper command for shell completion. Shell
+                           can be either 'bash' or 'zsh'.
+  -d|--log-debug  LOGFILE  dump debug messages to the given logfile.
+  -t|--trace               activate tracing (together with -d).
+  -h|--help                print this help text.
+  -H|--help-all            print additional help.
 
+__USAGE_LONG__
  Global environment variables:
    HT_HELPOPT               Specify the option to be used in order to
                             obtain an app's help text. When set to ':man'
@@ -920,6 +949,52 @@ Usage: ${FindBin::Script} [OPTIONS] ARGS...
                    HT_OPTARG_DIST_(MIN|MAX)
               └────────────────────────┬────────────────────────┘
                                     (1...N)
-    
-__DATA__
 
+__BASH_COMPLETION__
+_${lc(FindBin::Script)}()
+{
+    local IFS=$'\n'
+    COMPREPLY=( $(${FindBin::Script} -l "$COMP_LINE" -p $COMP_POINT -d /tmp/X -- $COMP_CWORD "${COMP_WORDS[@]}" 2>/dev/null ) )
+    [ "${COMPREPLY[0]}" == "<<HT_REDIRECT>>" ] && {
+        local CALL=${COMPREPLY[2]}
+        COMP_CWORD=$((${COMPREPLY[1]}-1))
+        COMPREPLY=("${COMPREPLY[@]:3}")
+        COMP_WORDS=(${COMPREPLY[@]})
+        COMPREPLY=($($CALL))
+    }
+}
+
+_${lc(FindBin::Script)}_completion() {
+    compgen -S ' ' -W "$(echo -e 'bash\nzsh')" -- "${COMP_WORDS[$COMP_CWORD]}"
+}
+export HT_REDIRECT_${uc(FindBin::Script)}__ANY__COMPLETION=_${lc(FindBin::Script)}_completion
+export HT_REDIRECT_${uc(FindBin::Script)}__ANY__S=_${lc(FindBin::Script)}_completion
+export HT_APP_${uc(FindBin::Script)}_NOCOMMANDS=1
+export HT_APP_${uc(FindBin::Script)}_SHOW_ALL=1
+export HT_APP_${uc(FindBin::Script)}_SHOW_MORE=1
+complete -o nosort -F _${lc(FindBin::Script)} ${FindBin::Script}
+
+__ZSH_COMPLETION__
+_helptext_completer () {
+  local words cword 
+  read -Ac words
+  read -cn cword
+  reply=( $(${FindBin::Script} -l "$BUFFER" -p $CURSOR -d /tmp/X -- $((cword-1))  "$words[@]" ) )
+  if [ $#reply = 0 ] ; then
+    reply=($words[$cword]*)
+  elif [ "$reply[1]" = "<<HT_REDIRECT>>" ] ; then
+      local CALL=$reply[3]
+      cword=$((reply[2]))
+      reply=(${reply:3})
+      reply=($(words=($reply[@]) cword=$cword $CALL))
+  fi
+}
+
+_${lc(FindBin::Script)}_completion() {
+    echo -e "bash zsh"
+}
+export HT_REDIRECT_${uc(FindBin::Script)}__ANY__COMPLETION=_${lc(FindBin::Script)}_completion
+export HT_REDIRECT_${uc(FindBin::Script)}__ANY__S=_${lc(FindBin::Script)}_completion
+export HT_APP_${uc(FindBin::Script)}_NOCOMMANDS=1
+export HT_APP_${uc(FindBin::Script)}_SHOW_ALL=1
+compctl -K _${lc(FindBin::Script)} ${FindBin::Script}

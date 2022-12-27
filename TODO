@@ -33,6 +33,7 @@
 * [X] Tool restarts completion for options that have all the arguments they need
 
 ## Nächste konkrete Schritte:
+* [ ] Bug: Don't complete after shell pipes and redirects ('|', '>', '>>' etc.)
 * [ ] Quality: Github Repo
   - [X] Create
   - [X] Push
@@ -53,8 +54,6 @@
     - [ ] HT_REDIRECT_*
     - [ ] HT_APP_*
   + [ ] Caveats, known issues and workarounds
-* [ ] Feature: Script provides bash completion function
-* [ ] Feature: Script provides zsh completion function
 * [ ] Feature: Script provides fish completion function
 * [ ] Refactoring: Modules to their own files?
 * [ ] Refactoring: Clean up bash completion function
@@ -92,6 +91,8 @@
 * [ ] Quality/Analysis: deployment:
   - [ ] Flatpak?
   - [ ] As "service" with WebAPI in Docker? 
+* [X] Feature: Script provides bash completion function
+* [X] Feature: Script provides zsh completion function
 * [X] Feature: HT(_APP_<APP>_)?_SHOW_MORE => show args and description in bash
 * [X] Feature: Support zsh completion (similar to pip)
 * [X] Feature: Support bash COMP_POINT
