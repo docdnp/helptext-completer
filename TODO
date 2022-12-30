@@ -48,6 +48,8 @@
 * [ ] Feature: Tool delivers option arguments on basis of data provided by the user, e.g.: HT_XYZ*="((optname_re):(word list);)+"
 * [ ] Refactoring/Analysis: Return values: find_options
 * [ ] Feature: Support fish completion (similar to pip)
+* [ ] Feature: Support multiline descriptions. This helps with SHOW_MORE
+* [ ] Refactoring/Bugfix: SHOW_MORE: Make column width in printf pattern dependendend from content
 * [ ] Quality: Integration tests on app level
 * [ ] Quality: User documentation
   + [X] ENV Variablen with "figure"
