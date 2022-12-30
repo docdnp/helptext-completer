@@ -16,7 +16,7 @@ subtest "Default: Return commands only" => sub {
 subtest "Default: Return options if requested" => sub {
     Test::Output::setup();
     my ($allopts) = helptext::completer::list_matches(["dummycmd", '-']);
-    is(scalar(@$allopts), 3, "3 options are returned");
+    is(scalar(@$allopts), 4, "4 options are returned");
     for(@$allopts){
         ok(!$_->{isCmd}, "Returned option is option")
     }
@@ -47,7 +47,7 @@ subtest "Default: Be quiet if last option's mandatory arg is missing" => sub {
         is(scalar(@$allopts), 3, "Call $command ''. Return 3 commands. Last option ignores optional argument.");
         for(@$allopts){ ok($_->{isCmd}, "Returned option is command") }
         ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-1-opt-arg', '-']);
-        is(scalar(@$allopts), 3, "Call $command '-'. Return 3 options. Last option ignores optional argument.");
+        is(scalar(@$allopts), 4, "Call $command '-'. Return 4 options. Last option ignores optional argument.");
         for(@$allopts){ ok(!$_->{isCmd}, "Returned option is option") }
     };
     Test::Output::teardown();
@@ -105,6 +105,36 @@ subtest "Default: Return commands only after last option is completed" => sub {
         is(scalar(@$allopts), 3, "Call $command 'ABC' ''. Return 3 commands. Last option ignores optional argument.");
         for(@$allopts){ ok($_->{isCmd}, "Returned option is command") }
     };
+    Test::Output::teardown();
+};
+
+subtest "Default: Don't complete on shell pipes or redirects" => sub {
+    Test::Output::setup();
+    subtest "Don't react on current arg '>' or '>>'" => sub {
+        my $command = "dummycmd --opt-no-arg";
+        my ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>']);
+        is(scalar(@$allopts), 0, "Call $command '>'. Return 0 commands. Shell redirect '>' is ignored.");
+        ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>>']);
+        is(scalar(@$allopts), 0, "Call $command '>>'. Return 0 commands. Shell redirect '>>' is ignored.");
+        $command = "dummycmd";
+        ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>']);
+        is(scalar(@$allopts), 0, "Call $command '>'. Return 0 commands. Shell redirect '>' is ignored.");
+        ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>>']);
+        is(scalar(@$allopts), 0, "Call $command '>>'. Return 0 commands. Shell redirect '>>' is ignored.");
+    };
+    subtest "Don't react on previous arg '>' or '>>'" => sub {
+        my $command = "dummycmd --opt-no-arg";
+        my ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>', '']);
+        is(scalar(@$allopts), 0, "Call $command '>' ''. Return 0 commands. Shell redirect '>' is ignored.");
+        ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>>', '']);
+        is(scalar(@$allopts), 0, "Call $command '>>' ''. Return 0 commands. Shell redirect '>>' is ignored.");
+        $command = "dummycmd";
+        ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>', '']);
+        is(scalar(@$allopts), 0, "Call $command '>' ''. Return 0 commands. Shell redirect '>' is ignored.");
+        ($allopts) = helptext::completer::list_matches(["dummycmd", '--opt-no-arg', '>>', '']);
+        is(scalar(@$allopts), 0, "Call $command '>>' ''. Return 0 commands. Shell redirect '>>' is ignored.");
+    };
+
     Test::Output::teardown();
 };
 
@@ -170,6 +200,7 @@ sub createCommandsAndOptions {
         new Option ({ %$long, name => '--opt-1-arg'    , args => 'MANDATORY_ARG'}),
         new Option ({ %$long, name => '--opt-2-args'   , args => 'MANDATORY_ARG1 MANDATORY_ARG2'}),
         new Option ({ %$long, name => '--opt-1-opt-arg', args => '[OPTIONAL_ARG]'}),
+        new Option ({ %$long, name => '--opt-no-arg'   , args => ''}),
         new Option ({ %$cmd,  name => 'cmd-1' }),
         new Option ({ %$cmd,  name => 'cmd-2' }),
         new Option ({ %$cmd,  name => 'cmd-3' }),

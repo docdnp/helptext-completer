@@ -33,7 +33,7 @@
 * [X] Tool restarts completion for options that have all the arguments they need
 
 ## Nächste konkrete Schritte:
-* [ ] Bug: Don't complete after shell pipes and redirects ('|', '>', '>>' etc.)
+* [ ] Bug: Fix zsh completion on basis of compctl
 * [ ] Quality: Github Repo
   - [X] Create
   - [X] Push
@@ -45,6 +45,7 @@
 * [ ] Refactoring/Analysis: HelpCmdForSubcommand seems too complicated and delivers too much. Can this be simplified?
 * [ ] Feature/Optimize: If `:man` => don't look for subcommands
 * [ ] Refactoring/Analysis: Simplify the way to read environment vars
+* [ ] Feature: Tool delivers option arguments on basis of data provided by the user, e.g.: HT_XYZ*="((optname_re):(word list);)+"
 * [ ] Refactoring/Analysis: Return values: find_options
 * [ ] Feature: Support fish completion (similar to pip)
 * [ ] Quality: Integration tests on app level
@@ -91,6 +92,7 @@
 * [ ] Quality/Analysis: deployment:
   - [ ] Flatpak?
   - [ ] As "service" with WebAPI in Docker? 
+* [X] Bug: Don't complete after shell pipes and redirects ('|', '>', '>>' etc.)
 * [X] Feature: Script provides bash completion function
 * [X] Feature: Script provides zsh completion function
 * [X] Feature: HT(_APP_<APP>_)?_SHOW_MORE => show args and description in bash

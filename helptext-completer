@@ -339,7 +339,12 @@ my @filters    = (
 );
 
 sub init {
-    main::numberFromEnv(\$maxCmdDist, MAX_CMD_DIST => 5, 0, @_);
+    my $no_commands = 0;
+    main::numberFromEnv(\$maxCmdDist , MAX_CMD_DIST => 5, 0, @_);
+    main::numberFromEnv(\$no_commands, NO_COMMANDS  => 0, 0, @_);
+    $no_commands && do {
+        $ENV{HT_FILTER_PADDING} = $ENV{HT_FILTER_DESCRIPTION} = $ENV{HT_FILTER_NO_NEIGHBOR} = 1;
+    };
     my $filterDisabled;    
     @filters = grep {
         main::numberFromEnv(\$filterDisabled, $_->[0], 0, 0, @_);
@@ -583,7 +588,7 @@ sub toCache  { my ($me, $opt) = @_; $me->{optcache}->{$opt->{name}} = $opt }
 sub store    { my ($me, $opt, $linenum) = @_;
     $opt->{lineNum} = $linenum;
     do { ( ! $opt || $me->inCache($opt) ) && next;
-        ::debug("Storing: $opt->{name}");
+        ::debug("Storing: $opt->{name} args:[$opt->{args}] padding:[$opt->{padding}] pad2Desc:[$opt->{pad2Desc}]");
         push @{$me->{allopts}}, $me->toCache($opt);
     }
     while($opt = $opt->{next});
@@ -603,10 +608,13 @@ sub tryToFixDescription { my ($me, $opt, $line, $linenum) = @_;
     if ($opt && !$opt->{pad2Desc}) {
         my $descOpt = $me->knownOptWithDescription($opt, $linenum);
         my $nextOpt = Opts::Find::DescLine(\$_);
-
+        ::debug("Check opt: ".($opt && $opt->{name}));
+        ::debug("Known opt: ".($descOpt && $descOpt->{name}.": $descOpt->{pad2Desc}"));
+        ::debug("Next  opt: ".($nextOpt && $nextOpt->{name}.": $nextOpt->{pad2Desc}"));
         $nextOpt && $descOpt 
                  && $nextOpt->{pad2Desc} == $descOpt->{pad2Desc} 
-                 && $opt->copyDescription($nextOpt);
+                 && $opt->copyDescription($nextOpt)
+                 && return;
 
         $descOpt && $opt->copyDescription($descOpt, 1)
             && return;
@@ -614,6 +622,7 @@ sub tryToFixDescription { my ($me, $opt, $line, $linenum) = @_;
         $nextOpt && $opt->copyDescription($nextOpt) 
             && return;
 
+        ::debug("Buffering: ".($opt && $opt->{name}));
         push(@{$me->{optbuffer}}, $opt);
     }
     elsif ($opt && $opt->{pad2Desc} && @{$me->{optbuffer}}) {
@@ -757,9 +766,9 @@ sub list_matches {
     ::debug ("ARGV: CURARG: $currArg");
 
     # Previous arg is -- => don't return anything
-    ($prevArg eq '--') && do {
+    ($prevArg =~ /^(?:--|>+)$/ ) && do {
         ::debug ("PREV ARG STOPS COMPLETION: $prevArg\n");
-        exit;
+        return;
     };
 
     my ($allOpts, $optcache, $fullCmd)    = find_options $cliArgs, $command, $helpOpt;
@@ -800,8 +809,7 @@ sub get_opts {
     'd|log-debug=s'      => \&::init_debug_log,
     't|trace'            => \&::trace,
     's|completion=s'     => sub { printCompletion $_[1]; exit 0 },
-    'h|help'             => sub { main::usage; exit 0  },
-    'H|help-all'         => sub { main::usage(*STDOUT, 1); exit 0  }
+    'h|help:s'           => sub { main::usage(*STDOUT, $_[1] eq 'all'); exit 0  },
     ) 
 }
 
@@ -853,6 +861,7 @@ sub main {
     ::debug ("RESULT: 1: ", scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
     my $show_more = 0;
     main::numberFromEnv(\$show_more, SHOW_MORE => 0);
+    ::debug("Show more: ".($show_more?"YES":"NO"));
     if (!$show_more || @$result == 1 || $result->[0] && $result->[0]->{name} eq '<<HT_REDIRECT>>') {
         my $resval   = $result->[0]->{name};
         my $redirect = $resval eq '<<HT_REDIRECT>>';
@@ -874,15 +883,23 @@ __USAGE__
 Usage: ${FindBin::Script} [OPTIONS] ARGS...
 
  Arguments:
-  -p|--comp-point POS      set the current cursor position within the
-                           current line (see --comp-line).
-  -l|--comp-line  LINE     set the current line.
-  -s|--completion SHELL    helper command for shell completion. Shell
-                           can be either 'bash' or 'zsh'.
-  -d|--log-debug  LOGFILE  dump debug messages to the given logfile.
-  -t|--trace               activate tracing (together with -d).
-  -h|--help                print this help text.
-  -H|--help-all            print additional help.
+  -p|--comp-point POS
+                set the current cursor position within the current line (see --comp-line).
+
+  -l|--comp-line LINE
+                set the current line.
+
+  -s|--completion (bash|zsh)    
+                helper command for shell completion. Shell can be either 'bash' or 'zsh'.
+
+  -d|--log-debug LOGFILE
+                dump debug messages to the given logfile.
+
+  -t|--trace 
+                activate tracing (together with -d).
+
+  -h|--help [all]
+                print this help text.
 
 __USAGE_LONG__
  Global environment variables:
@@ -969,9 +986,10 @@ _${lc(FindBin::Script)}_completion() {
 }
 export HT_REDIRECT_${uc(FindBin::Script)}__ANY__COMPLETION=_${lc(FindBin::Script)}_completion
 export HT_REDIRECT_${uc(FindBin::Script)}__ANY__S=_${lc(FindBin::Script)}_completion
-export HT_APP_${uc(FindBin::Script)}_NOCOMMANDS=1
+export HT_APP_${uc(FindBin::Script)}_NO_COMMANDS=1
 export HT_APP_${uc(FindBin::Script)}_SHOW_ALL=1
 export HT_APP_${uc(FindBin::Script)}_SHOW_MORE=1
+export HT_APP_${uc(FindBin::Script)}_OPTARG_DIST_MAX=7
 complete -o nosort -F _${lc(FindBin::Script)} ${FindBin::Script}
 
 __ZSH_COMPLETION__
@@ -995,6 +1013,6 @@ _${lc(FindBin::Script)}_completion() {
 }
 export HT_REDIRECT_${uc(FindBin::Script)}__ANY__COMPLETION=_${lc(FindBin::Script)}_completion
 export HT_REDIRECT_${uc(FindBin::Script)}__ANY__S=_${lc(FindBin::Script)}_completion
-export HT_APP_${uc(FindBin::Script)}_NOCOMMANDS=1
+export HT_APP_${uc(FindBin::Script)}_NO_COMMANDS=1
 export HT_APP_${uc(FindBin::Script)}_SHOW_ALL=1
 compctl -K _${lc(FindBin::Script)} ${FindBin::Script}
