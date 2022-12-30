@@ -32,7 +32,12 @@
 * [X] Tool stops completion for options that need arguments
 * [X] Tool restarts completion for options that have all the arguments they need
 
-## Nächste konkrete Schritte:
+## Next steps:
+* [ ] Quality: Test ARGV preparation
+* [ ] Feature: Support multiline descriptions. This helps with SHOW_MORE
+* [ ] Refactoring/Bugfix: SHOW_MORE: Make column width in printf pattern dependendend from content
+* [ ] Feature: Tool delivers option arguments on basis of data provided by the user, e.g.: HT_XYZ*="((optname_re):(word list);)+"
+* [ ] Feature: HT_MAX_NUM_ARGS
 * [ ] Bug: Fix zsh completion on basis of compctl
 * [ ] Quality: Github Repo
   - [X] Create
@@ -40,16 +45,12 @@
   - [X] CI
   - [ ] README
   - [X] LICENSE => Name
-* [ ] Quality: Test ARGV preparation
 * [ ] Quality: Test output suffix
 * [ ] Refactoring/Analysis: HelpCmdForSubcommand seems too complicated and delivers too much. Can this be simplified?
 * [ ] Feature/Optimize: If `:man` => don't look for subcommands
 * [ ] Refactoring/Analysis: Simplify the way to read environment vars
-* [ ] Feature: Tool delivers option arguments on basis of data provided by the user, e.g.: HT_XYZ*="((optname_re):(word list);)+"
 * [ ] Refactoring/Analysis: Return values: find_options
 * [ ] Feature: Support fish completion (similar to pip)
-* [ ] Feature: Support multiline descriptions. This helps with SHOW_MORE
-* [ ] Refactoring/Bugfix: SHOW_MORE: Make column width in printf pattern dependendend from content
 * [ ] Quality: Integration tests on app level
 * [ ] Quality: User documentation
   + [X] ENV Variablen with "figure"
