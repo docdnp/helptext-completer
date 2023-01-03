@@ -33,19 +33,19 @@
 * [X] Tool restarts completion for options that have all the arguments they need
 
 ## Next steps:
-* [ ] Quality: Test ARGV preparation
+* [ ] Refactoring: HT_FILTER* => HT_NOFILTER*
+* [ ] Refactoring/Quality: stty based completion: Mark dirty stty based completion feature (including the results from helptext::completer::prepare_output()) as experimental
+* [ ] Quality: stty based completion: Introduce Featue-Flag
+* [ ] Analysis/Bugfix: point at --no[-]xyz leads to --no-[-]xyz
+* [ ] Quality: Test output suffix => Rework this completely. The tests seem to attempt to test stuff, that isn't covered by the function they test.
 * [ ] Feature: Support multiline descriptions. This helps with SHOW_MORE
-* [ ] Refactoring/Bugfix: SHOW_MORE: Make column width in printf pattern dependendend from content
+* [ ] Refactoring: SHOW_MORE: Make column width in printf pattern dependendend from content
+* [ ] Bugfix: stty based completion: Analyze the stty-completion bug after this magic
 * [ ] Feature: Tool delivers option arguments on basis of data provided by the user, e.g.: HT_XYZ*="((optname_re):(word list);)+"
-* [ ] Feature: HT_MAX_NUM_ARGS
-* [ ] Bug: Fix zsh completion on basis of compctl
+* [ ] Feature: HT_MAX_NUM_ARGS.. It seems as if more than one argument is a frequent case
+* [ ] Bugfix: Fix zsh completion on basis of compctl
 * [ ] Quality: Github Repo
-  - [X] Create
-  - [X] Push
-  - [X] CI
-  - [ ] README
-  - [X] LICENSE => Name
-* [ ] Quality: Test output suffix
+* [ ] Quality: Github Repo: README
 * [ ] Refactoring/Analysis: HelpCmdForSubcommand seems too complicated and delivers too much. Can this be simplified?
 * [ ] Feature/Optimize: If `:man` => don't look for subcommands
 * [ ] Refactoring/Analysis: Simplify the way to read environment vars
@@ -53,6 +53,7 @@
 * [ ] Feature: Support fish completion (similar to pip)
 * [ ] Quality: Integration tests on app level
 * [ ] Quality: User documentation
+* [ ] Refactoring/Quality: Actually the `-t` has never been used
   + [X] ENV Variablen with "figure"
   + [ ] More ENV vars
     - [ ] HT_REDIRECT_*
@@ -95,6 +96,11 @@
 * [ ] Quality/Analysis: deployment:
   - [ ] Flatpak?
   - [ ] As "service" with WebAPI in Docker? 
+* [X] Quality: Github Repo: Create
+* [X] Quality: Github Repo: Push
+* [X] Quality: Github Repo: CI
+* [X] Quality: Github Repo: LICENSE => Name
+* [X] Quality: Test ARGV preparation
 * [X] Bug: Don't complete after shell pipes and redirects ('|', '>', '>>' etc.)
 * [X] Feature: Script provides bash completion function
 * [X] Feature: Script provides zsh completion function

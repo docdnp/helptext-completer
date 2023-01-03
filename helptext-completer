@@ -45,10 +45,11 @@ sub error {
     exit 1;
 }
 
-sub logdebug     { my $caller = (caller(1))[3]; if ($caller =~ /debug_log_line/) { $caller = (caller(2))[3] }; $_[0] =~ /^>(.*)/ && ($caller = $1, shift);my @ARGS=@_; print D "DEBUG: ", $caller, ": ", join("\nDEBUG: ", map{chomp($_);$_='['.$_.']'}@{[@ARGS]} ), "\n" }
-sub logdebug_end { for(1..10) { print D ((caller(1))[3], " # ---------------------------------------------------- #\n" )} }
-sub noop         { 1 }
-sub usage        { 1 }
+sub logdebug      { my $caller = (caller(1))[3]; if ($caller =~ /debug_log_line/) { $caller = (caller(2))[3] }; $_[0] =~ /^>(.*)/ && ($caller = $1, shift);my @ARGS=@_; print D "DEBUG: ", $caller, ": ", join("\nDEBUG: ", map{chomp($_);$_='['.$_.']'}@{[@ARGS]} ), "\n" }
+sub logdebug_end  { for(1..10) { print D ((caller(1))[3], " # ---------------------------------------------------- #\n" )} }
+sub noop          { 1 }
+sub usage         { 1 }
+sub debug_enabled { *{debug} != \&noop }
 
 sub init_debug_log {
     my  ($optname, $DEBUG_FILE) = @_;
@@ -768,7 +769,7 @@ sub list_matches {
     # Previous arg is -- => don't return anything
     ($prevArg =~ /^(?:--|>+)$/ ) && do {
         ::debug ("PREV ARG STOPS COMPLETION: $prevArg\n");
-        return;
+        return {matches => [], allopts => []};
     };
 
     my ($allOpts, $optcache, $fullCmd)    = find_options $cliArgs, $command, $helpOpt;
@@ -780,26 +781,179 @@ sub list_matches {
         ($fullCmd->{subcmd} && $fullCmd->{subcmd}->{pos}), $filteredOpts);
 
     ::debug("Check step 00: $opt $i");
+    my $matches;
     if ($opt) {
         $opt->{cliindex} = $i;
         ::debug("Last option: $opt->{name}");
-         ($opt->{needsArgs} = needs_args($opt, $i, $cliArgs, $currArg))
-         && ::debug ("Last option: $opt->{name} needs args") &&
-            return redirect([], $fullCmd, $cliArgs, $opt, "OPT NEEDS ARGS");
-        
+        ($opt->{needsArgs} = needs_args($opt, $i, $cliArgs, $currArg)) && do {
+            ::debug ("Last option: $opt->{name} needs args");
+            $matches = redirect([], $fullCmd, $cliArgs, $opt, "OPT NEEDS ARGS")
+        };        
     }
 
-    ::debug("Check step 01: ".scalar(@$filteredOpts));
-    ::debug("SHOW ALL?".main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) );
-    main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) && return 
-        redirect([grep { $_->{name} =~ /^$currArg/ && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "SHOW ALL");
+    !$matches && main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) && do {
+        ::debug("Check step 01: ".scalar(@$filteredOpts));
+        ::debug("SHOW ALL?".main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) );
+        $matches = redirect([grep { $_->{name} =~ /^$currArg/ && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "SHOW ALL")
+    };
+    !$matches && !$currArg && do {
+        ::debug("Check step 02");
+        $matches = redirect([grep { $_->{isCmd} && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO CUR ITEM")
+    };
 
-    ::debug("Check step 02");
-    !$currArg && return 
-        redirect([grep { $_->{isCmd} && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO CUR ITEM");
+    !$matches && do {
+        ::debug("Check step 03");
+        $matches = redirect([grep { $_->{name} =~ /^$currArg/ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO MATCH")
+    };
 
-    ::debug("Check step 03");
-    return redirect([grep { $_->{name} =~ /^$currArg/ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO MATCH");
+    return { matches => $matches, allopts => $filteredOpts, optcache => $optcache }
+}
+
+sub prepare_argv {
+    my ($comp_point, $comp_line, $curword) = @_;
+    ! $comp_point || ! $comp_line && do {
+        ::debug("No COMP_LINE/COMP_POINT data available. len(COMP_LINE)="
+        .len($comp_line).", COMP_POINT=$comp_point");
+        return;
+    };
+
+    # debug output
+    my ($comp_line_disp, $comp_line_suffix);
+    main::debug_enabled() && do {
+        ::debug("COMP_LINE original : ".$comp_line);
+        my $point_vs_len     = $comp_point + 2 - length($comp_line);
+           $comp_line_suffix = $point_vs_len < 0 ? '' : (' ' x $point_vs_len);
+        ::debug("COMP_LINE point-len: ".$point_vs_len);
+    };
+
+    my $debugout = sub { ! main::debug_enabled() && return;
+        my $linespec = shift;
+        my $caller   = (caller(1))[3];
+        $comp_line_disp = $comp_line.$comp_line_suffix;
+        substr($comp_line_disp, $comp_point+1, 0) = ']';
+        substr($comp_line_disp, $comp_point  , 0) = '[';
+        $linespec && 
+            ::debug("$caller: COMP_LINE $linespec: ".$comp_line);
+        ::debug("$caller: COMP_LINE w/ point : ".$comp_line_disp);
+    };
+    $debugout->();
+
+    my $currchar = substr($comp_line, $comp_point, 1);
+    my $curword_ = $$curword;
+    ::debug("Curword       : ".$$curword);
+    my $cliPosWord;# = index($comp_line, $$curword.' ', $comp_point);
+    my $lastPosWord = $cliPosWord;
+    my $searchFrom = 0;
+    while(($cliPosWord = index($comp_line, $$curword, $searchFrom)) > -1) {
+        $lastPosWord == $cliPosWord && last;
+        $lastPosWord = $cliPosWord;
+        $searchFrom  = $cliPosWord + 1;
+        $cliPosWord - $comp_point == 1 && do {
+            $$curword = "";
+            ::debug("comp_point $comp_point directly before $curword_. Cutting it to '$$curword'.");
+            last;
+        };
+        $comp_point >= $cliPosWord && $comp_point <= $cliPosWord + length($$curword) && do {
+            $$curword = substr($$curword, 0, $comp_point-$cliPosWord);
+            ::debug("comp_point $comp_point within $curword_. Cutting it to $$curword.");
+            last;
+        };
+    }
+    
+    # debug output
+    $debugout->("prepared ");
+    return $currchar, $lastPosWord;
+}
+
+sub newTcap { 
+    require Term::Cap;
+    # $| = 1; 
+    my $ospeed = eval { require POSIX; 
+        my $termios = POSIX::Termios->new(); 
+        $termios->getattr;  $termios->getospeed; } || 9600;
+    my $tcap = Term::Cap->Tgetent ({ TERM => undef, OSPEED => $ospeed }); 
+    $tcap->Trequire(qw(nd RI le LE up UP do DO)); 
+    return $tcap;
+} 
+
+my $tcap = newTcap();
+
+sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $currchar, $curwordpos) = @_;
+    my $result  = $results->{matches};
+    ::debug("------------   : -------------------------");
+    ::debug("Result == ".scalar(@$result));
+    ! @$result && return [];
+    if (@$result == 1) {
+        ::debug("Result == 1");
+        my $resval = $result->[0]->{name};
+        my $nextargpos = index ($comp_line, ' ', $comp_point);
+        my $maxpoint = ($nextargpos > 0 ? $nextargpos : length($comp_line));
+        my $beforepoint = substr($comp_line, $curwordpos, $comp_point - $curwordpos - 1);
+        my $afterpoint  = substr($comp_line, $comp_point, $maxpoint - $comp_point);
+        main::debug_enabled() && do {
+            ::debug("\$curword      : $curword");
+            ::debug("\$curwordpos   : $curwordpos");
+            ::debug("\$currchar     : $currchar");
+            ::debug("\$comp_point   : $comp_point");
+            ::debug("\$comp_line    : $comp_line");
+            ::debug("\$resval       : $resval");
+            ::debug("\$nextargpos   : $nextargpos");
+            ::debug("\$maxpoint     : $maxpoint");
+            ::debug("\$afterpoint   : $afterpoint");
+            ::debug("\$beforepoint  : $beforepoint");
+        };
+
+        if ($resval eq $curword) {
+            ::debug("Current word is result: $resval == $curword");
+            $afterpoint !~ /^\s*$/ && return [];
+            return [map{sprintf("%s\n",$_->{name})}@$result];
+        }
+
+        my $beforelen = length($beforepoint);
+        my ($curopt, $cutlen) = ({opt=>0}, 0);
+        do {
+            my $beforepoint = substr($comp_line, $curwordpos, $comp_point - $curwordpos - $cutlen);
+            ::debug("\$beforepoint  : $beforepoint $cutlen ".($beforelen));
+            ::debug("Before/After   : [$beforepoint.$afterpoint] ");
+            $curopt = {
+                opt => $results->{optcache}->{$beforepoint.$afterpoint},
+                beforepoint => $beforepoint
+            };
+            ::debug("Condition: 1: [".!$curopt->{opt}."], 2:[".($cutlen < $beforelen)."]");
+        } 
+        while (!$curopt->{opt} && (++$cutlen < $beforelen));
+
+        main::debug_enabled() && $curopt->{opt} && do {
+            ::debug("\$curopt  : $curopt->{opt}->{name}");
+            ::debug("\$beforepoint  : $curopt->{beforepoint}");
+            ::debug("Before/After: [$curopt->{beforepoint}$afterpoint] ");
+            ::debug("Cached Opt  : [".($curopt->{opt} && $curopt->{opt}->{name})."]");
+        };
+
+        my $suffix = $curopt->{opt} ? ' '.$curopt->{beforepoint} : ' ';
+           $suffix = $afterpoint ? $suffix : '';
+        my $ts;
+        $curopt->{opt} && do {
+            # open my $m, '>', \$ts or    die $!;
+            # $tcap->Tputs('le', 1, $m) for (1..length($suffix));
+            return [ "<<HT_TPUT>>\n", length($suffix)."\n", $result->[0]->{name}."\n", $suffix."\n" ];
+        };
+        ::debug("Suffix  : [".($suffix)."]");
+
+        return [map{sprintf("%s$suffix%s\n",$_->{name}, $ts)}@$result];
+    } 
+    ::debug("Result > 1");
+    my $show_more = 0;
+    main::numberFromEnv(\$show_more, SHOW_MORE => 0);
+    ::debug("SHOW MORE: $show_more");
+    if($result->[0] && $result->[0]->{name} eq '<<HT_REDIRECT>>') {
+        ::debug("Redirect: $result->[2]->{name}");
+        return [map{sprintf("%s\n",$_->{name})}@$result];
+    } elsif ($show_more) {
+        return [map{sprintf("%-30s %-40s-- %-80s\n",$_->{name},$_->{args}, substr($_->{desc},0,90).($_->{desc} =~ /\.$/ ? '' : ' .').'..')}@$result];
+    } else {
+        return [map{sprintf("%s\n",$_->{name})}@$result];
+    }
 }
 
 sub get_opts {
@@ -828,50 +982,24 @@ sub main {
     @ARGV < 3 && ::error("Missing mandatory arguments.");
     
     my $curCliPos = shift @ARGV;
-    my $curword   = $ARGV[$curCliPos];
-    my $currchar;
+
     ::debug("curCliPos: $curCliPos");
     init $ARGV[0];
 
-    $comp_point && $comp_line && do {
-        $currchar = substr($comp_line, $comp_point, 1);
-        ::debug("Preparing ARGV: ".join(' ', @ARGV));
-        my $cliPosWord = index($comp_line, $curword.' ', $comp_point);
-        if ($cliPosWord > -1) {
-            ::debug("comp_point $comp_point before $curword");
-            $curword !~ /^-{1,2}$/ && $cliPosWord - $comp_point <= 1 && ($ARGV[$curCliPos] = "");
-        } else {
-            my $searchFrom = 0;
-            while(($cliPosWord = index($comp_line, $curword, $searchFrom)) > -1) {
-                $cliPosWord == $searchFrom && last;
-                $searchFrom = $cliPosWord;
-                ::debug("Searching $curword in comp_line. Current guess: found it at pos $cliPosWord.");
-                $comp_point > $cliPosWord  && $comp_point < $cliPosWord + length($curword) && do {
-                    $ARGV[$curCliPos] = substr($curword, 0, $comp_point-$cliPosWord);
-                    ::debug("comp_point $comp_point within $curword. Cutting it to $ARGV[$curCliPos].");
-                    last;
-                }
-            }
-        }
-        ::debug("Prepared ARGV : ".join(' ', @ARGV));
-    };
+    my $curwordref = \$ARGV[$curCliPos];
+    my $curword    =  $ARGV[$curCliPos];
 
-    my $result = list_matches([@ARGV[0..$curCliPos]]);
+    ::debug("Preparing ARGV     : ".join(' ', @ARGV));
+    my ($currchar, $curwordpos) = prepare_argv($comp_point, $comp_line, $curwordref);
+    ::debug("Prepared ARGV      : ".join(' ', @ARGV));
 
-    ::debug ("RESULT: 1: ", scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
-    my $show_more = 0;
-    main::numberFromEnv(\$show_more, SHOW_MORE => 0);
-    ::debug("Show more: ".($show_more?"YES":"NO"));
-    if (!$show_more || @$result == 1 || $result->[0] && $result->[0]->{name} eq '<<HT_REDIRECT>>') {
-        my $resval   = $result->[0]->{name};
-        my $redirect = $resval eq '<<HT_REDIRECT>>';
-        my $suffix   = $resval eq '' || $redirect || $currchar =~ /^\s?$/ ? '' : ' ';
-        print(map{sprintf("%s$suffix\n",$_->{name})}@$result);
-    } else {
-        print(map{sprintf("%-30s %-40s-- %-80s\n",$_->{name},$_->{args}, substr($_->{desc},0,90).($_->{desc} =~ /\.$/ ? '' : ' .').'..')}@$result);
-    }
+    my $results = list_matches([@ARGV[0..$curCliPos]]);
+    my $result  = $results->{matches};
+
+    ::debug ("RESULT: ". scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
+    print @{prepare_output ($results, $comp_point, $comp_line, $curword, $currchar, $curwordpos)};
     ::debug_end();
-    exit scalar(@$result)?0:1
+    exit 0
 }
 
 $ENV{HT_COMPLETER_UNITTEST} || main();
@@ -989,8 +1117,7 @@ export HT_REDIRECT_${uc(FindBin::Script)}__ANY__S=_${lc(FindBin::Script)}_comple
 export HT_APP_${uc(FindBin::Script)}_NO_COMMANDS=1
 export HT_APP_${uc(FindBin::Script)}_SHOW_ALL=1
 export HT_APP_${uc(FindBin::Script)}_SHOW_MORE=1
-export HT_APP_${uc(FindBin::Script)}_OPTARG_DIST_MAX=7
-complete -o nosort -F _${lc(FindBin::Script)} ${FindBin::Script}
+complete -o default -o nosort -F _${lc(FindBin::Script)} ${FindBin::Script}
 
 __ZSH_COMPLETION__
 _helptext_completer () {

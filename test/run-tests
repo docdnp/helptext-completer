@@ -24,7 +24,7 @@ sub load_completer {
     delete $INC{"helptext-completer"};
     $ENV{HT_COMPLETER_UNITTEST} = 1; 
     require "helptext-completer";
-    helptext::completer::init();
+    helptext::completer::init(@_);
 }
 
 sub exit_on_fatal { 
@@ -40,6 +40,7 @@ sub get_basic_modules { no warnings; qw(
 )}
 
 sub get_test_modules { no warnings; qw(
+    test-prepare-argv
     test-helptextcommand
     test-opts
     test-commands
@@ -47,7 +48,8 @@ sub get_test_modules { no warnings; qw(
     test-fix-description
     test-opt-filters
     test-redirection
-    test-output
+    test-matches
+    #test-output
     test-real-world-examples
 )}
 

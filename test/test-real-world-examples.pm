@@ -18,7 +18,7 @@ sub find_opts {
 
     *{HelptextCommand::Open} = sub { $handle };
 
-    my $allOpts    = helptext::completer::list_matches(['cmd-dummy', '']);
+    my $allOpts    = helptext::completer::list_matches(['cmd-dummy', ''])->{matches};
     my $shortOpts  = [grep {defined $_->{type} && $_->{type} eq 'SHORT' && $_ } @$allOpts];
     my $longOpts   = [grep {defined $_->{type} && $_->{type} eq 'LONG'  && $_ } @$allOpts];
     my $cmdOpts    = [grep {defined $_->{type} && $_->{type} eq 'CMD'   && $_ } @$allOpts];
