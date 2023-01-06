@@ -865,19 +865,6 @@ sub prepare_argv {
     return $currchar, $lastPosWord;
 }
 
-sub newTcap { 
-    require Term::Cap;
-    # $| = 1; 
-    my $ospeed = eval { require POSIX; 
-        my $termios = POSIX::Termios->new(); 
-        $termios->getattr;  $termios->getospeed; } || 9600;
-    my $tcap = Term::Cap->Tgetent ({ TERM => undef, OSPEED => $ospeed }); 
-    $tcap->Trequire(qw(nd RI le LE up UP do DO)); 
-    return $tcap;
-} 
-
-my $tcap = newTcap();
-
 sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $currchar, $curwordpos) = @_;
     my $result  = $results->{matches};
     ::debug("------------   : -------------------------");
@@ -934,9 +921,8 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $currchar, 
            $suffix = $afterpoint ? $suffix : '';
         my $ts;
         $curopt->{opt} && do {
-            # open my $m, '>', \$ts or    die $!;
-            # $tcap->Tputs('le', 1, $m) for (1..length($suffix));
-            return [ "<<HT_TPUT>>\n", length($suffix)."\n", $result->[0]->{name}."\n", $suffix."\n" ];
+            # return [ "<<HT_TPUT>>\n", length($suffix)."\n", $result->[0]->{name}."\n", $suffix."\n" ];
+            return [ "$result->[0]->{name}$suffix\n" ]
         };
         ::debug("Suffix  : [".($suffix)."]");
 
