@@ -33,10 +33,11 @@
 * [X] Tool restarts completion for options that have all the arguments they need
 
 ## Next steps:
-* [ ] Refactoring: HT_FILTER* => HT_NOFILTER*
-* [ ] Refactoring/Quality: stty based completion: Mark dirty stty based completion feature (including the results from helptext::completer::prepare_output()) as experimental
-* [ ] Quality: stty based completion: Introduce Featue-Flag
+* [ ] Refactoring: HT_FILTER* => HT_NOFILTER* (nobrainer)
+* [ ] Refactoring/Quality: stty based completion: Mark dirty stty based completion feature (including the results from helptext::completer::prepare_output()) as experimental => remove completely
+* [ ] Quality: stty based completion: Introduce Featue-Flag => remove completely
 * [ ] Analysis/Bugfix: point at --no[-]xyz leads to --no-[-]xyz
+* [ ] Quality: Github Repo: README
 * [ ] Quality: Test output suffix => Rework this completely. The tests seem to attempt to test stuff, that isn't covered by the function they test.
 * [ ] Feature: Support multiline descriptions. This helps with SHOW_MORE
 * [ ] Refactoring: SHOW_MORE: Make column width in printf pattern dependendend from content
@@ -44,8 +45,6 @@
 * [ ] Feature: Tool delivers option arguments on basis of data provided by the user, e.g.: HT_XYZ*="((optname_re):(word list);)+"
 * [ ] Feature: HT_MAX_NUM_ARGS.. It seems as if more than one argument is a frequent case
 * [ ] Bugfix: Fix zsh completion on basis of compctl
-* [ ] Quality: Github Repo
-* [ ] Quality: Github Repo: README
 * [ ] Refactoring/Analysis: HelpCmdForSubcommand seems too complicated and delivers too much. Can this be simplified?
 * [ ] Feature/Optimize: If `:man` => don't look for subcommands
 * [ ] Refactoring/Analysis: Simplify the way to read environment vars

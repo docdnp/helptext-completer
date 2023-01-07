@@ -107,13 +107,21 @@ if (!defined $ENV{HT_COMPLETER_UNITTEST}) {
 # ------------------------------------------------------------------------------------------
 package Option;
 
+my @RW = qw( args lineno cliindex needsArgs );
+
 sub new { my ($class, $args) = @_;
-    my  $self = { name     => '', isCmd    => 0 , line     => '', lineno   => 0,
-                  desc     => '', padding  => '', args     => '', pad2Args => 0, 
-                  next => 0 , numArgs  => 0 , pad2Desc => 0, type   => '', hasOptArgs => 0
+    my  $self = { name => '', isCmd   => 0 , line    => '', lineno   => 0,
+                  desc => '', padding => '', args    => '', pad2Args => 0, 
+                  prev => 0 , next    => 0 , numArgs => 0 , pad2Desc => 0 , 
+                  type => '', hasOptArgs => 0, cliindex => 0, needsArgs => 0
                 };
     $args && ($self = { %$self , %$args });
-    return bless($self, $class)->init();
+    $self = bless($self, $class)->init();
+    # Internals::SvREADONLY(%$self,1);
+    while(my ($k,$v) = each %$self) {
+        grep (/$k/, @RW )|| Internals::SvREADONLY($v,1);
+    }
+    return $self
 }
 
 sub init { my $self = $_[0];
@@ -394,7 +402,10 @@ sub DiscardIfMatchesName {
 sub DropCmdIfNoNeighbor {
     my $maxNeighborDistance = $maxCmdDist;
     my ($candidates, $id) = ($_[0]);
-    my @commands = grep { $id++; $_->{type} eq 'CMD' && do { $_->{index} = $id-1 ; $_ } } @{$candidates};
+    my @commands = grep { $_->{type} eq 'CMD' } map { $id++; { type   => $_->{type},
+                                                               lineno => $_->{lineno}, 
+                                                               index => $id-1
+                                                     } } @{$candidates};
     ::debug("command list size: ".scalar(@commands));
     ::debug("line distance: $maxNeighborDistance");
     my @remove;
@@ -586,8 +597,7 @@ sub allOpts  { my $me = shift; return $me->{allopts} }
 sub optCache { my $me = shift; return $me->{optcache} }
 sub inCache  { my ($me, $opt) = @_; exists $me->{optcache}->{$opt->{name}} }
 sub toCache  { my ($me, $opt) = @_; $me->{optcache}->{$opt->{name}} = $opt }
-sub store    { my ($me, $opt, $linenum) = @_;
-    $opt->{lineNum} = $linenum;
+sub store    { my ($me, $opt) = @_;
     do { ( ! $opt || $me->inCache($opt) ) && next;
         ::debug("Storing: $opt->{name} args:[$opt->{args}] padding:[$opt->{padding}] pad2Desc:[$opt->{pad2Desc}]");
         push @{$me->{allopts}}, $me->toCache($opt);
@@ -595,7 +605,7 @@ sub store    { my ($me, $opt, $linenum) = @_;
     while($opt = $opt->{next});
 }
 
-sub knownOptWithDescription { my ($me, $opt, $linenum) = @_;
+sub knownOptWithDescription { my ($me, $opt) = @_;
     my $prevOpt;
     for (my $prevOptIdx = @{$me->{allopts}}-2; $prevOptIdx != 0; $prevOptIdx--) {
         $prevOptIdx < 0 && last;
@@ -605,9 +615,9 @@ sub knownOptWithDescription { my ($me, $opt, $linenum) = @_;
     }
 }
 
-sub tryToFixDescription { my ($me, $opt, $line, $linenum) = @_;
+sub tryToFixDescription { my ($me, $opt, $line) = @_;
     if ($opt && !$opt->{pad2Desc}) {
-        my $descOpt = $me->knownOptWithDescription($opt, $linenum);
+        my $descOpt = $me->knownOptWithDescription($opt);
         my $nextOpt = Opts::Find::DescLine(\$_);
         ::debug("Check opt: ".($opt && $opt->{name}));
         ::debug("Known opt: ".($descOpt && $descOpt->{name}.": $descOpt->{pad2Desc}"));
@@ -690,10 +700,11 @@ sub find_options{
     my $optstore = new Opts::Store;
     my ($opt, $linenum);
     while(<$stream>) {
-        $optstore->tryToFixDescription($opt, \$_, $linenum++);
+        $optstore->tryToFixDescription($opt, \$_);
         $opt = Opts::Find::AnyOpt(\$_, $linenum); 
         $opt && $optstore->store($opt) && next;
         Opts::Find::EmptyLine(\$_);
+        $linenum++
     }
 
     return ($optstore->allOpts(), $optstore->optCache(), $fullCmd)
@@ -865,20 +876,7 @@ sub prepare_argv {
     return $currchar, $lastPosWord;
 }
 
-sub newTcap { 
-    require Term::Cap;
-    # $| = 1; 
-    my $ospeed = eval { require POSIX; 
-        my $termios = POSIX::Termios->new(); 
-        $termios->getattr;  $termios->getospeed; } || 9600;
-    my $tcap = Term::Cap->Tgetent ({ TERM => undef, OSPEED => $ospeed }); 
-    $tcap->Trequire(qw(nd RI le LE up UP do DO)); 
-    return $tcap;
-} 
-
-my $tcap = newTcap();
-
-sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $currchar, $curwordpos) = @_;
+sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos) = @_;
     my $result  = $results->{matches};
     ::debug("------------   : -------------------------");
     ::debug("Result == ".scalar(@$result));
@@ -888,19 +886,18 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $currchar, 
         my $resval = $result->[0]->{name};
         my $nextargpos = index ($comp_line, ' ', $comp_point);
         my $maxpoint = ($nextargpos > 0 ? $nextargpos : length($comp_line));
-        my $beforepoint = substr($comp_line, $curwordpos, $comp_point - $curwordpos - 1);
+        my $beforepoint_init = substr($comp_line, $curwordpos, $comp_point - $curwordpos);
         my $afterpoint  = substr($comp_line, $comp_point, $maxpoint - $comp_point);
         main::debug_enabled() && do {
             ::debug("\$curword      : $curword");
             ::debug("\$curwordpos   : $curwordpos");
-            ::debug("\$currchar     : $currchar");
             ::debug("\$comp_point   : $comp_point");
             ::debug("\$comp_line    : $comp_line");
             ::debug("\$resval       : $resval");
             ::debug("\$nextargpos   : $nextargpos");
             ::debug("\$maxpoint     : $maxpoint");
             ::debug("\$afterpoint   : $afterpoint");
-            ::debug("\$beforepoint  : $beforepoint");
+            ::debug("\$beforepoint  : $beforepoint_init");
         };
 
         if ($resval eq $curword) {
@@ -909,7 +906,7 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $currchar, 
             return [map{sprintf("%s\n",$_->{name})}@$result];
         }
 
-        my $beforelen = length($beforepoint);
+        my $beforelen = length($beforepoint_init);
         my ($curopt, $cutlen) = ({opt=>0}, 0);
         do {
             my $beforepoint = substr($comp_line, $curwordpos, $comp_point - $curwordpos - $cutlen);
@@ -934,9 +931,18 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $currchar, 
            $suffix = $afterpoint ? $suffix : '';
         my $ts;
         $curopt->{opt} && do {
-            # open my $m, '>', \$ts or    die $!;
-            # $tcap->Tputs('le', 1, $m) for (1..length($suffix));
-            return [ "<<HT_TPUT>>\n", length($suffix)."\n", $result->[0]->{name}."\n", $suffix."\n" ];
+            $resval  =~ /^$beforepoint_init(.*)/;
+            my $newopt_rest = $1;
+            ::debug("--------------------------------------------------------");
+            ::debug("\$curopt->{name}          : $curopt->{opt}->{name}");
+            ::debug("\$newopt                  : $resval");
+            ::debug(" - contains beforepoint? : $curopt->{beforepoint}");
+            ::debug("\$curopt->{beforepoint}   : $curopt->{beforepoint}");
+            ::debug("\$beforepoint_init        : $beforepoint_init");
+            ::debug("\$newopt_rest             : $newopt_rest");
+            ::debug("\$curopt_rest             : $afterpoint");
+            ::debug("\$suffix                  : $suffix");
+            return [ "<<HT_TPUT>>\n",(length($suffix))."\n",  $newopt_rest.' '.$suffix."\n" ];
         };
         ::debug("Suffix  : [".($suffix)."]");
 
@@ -997,7 +1003,7 @@ sub main {
     my $result  = $results->{matches};
 
     ::debug ("RESULT: ". scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
-    print @{prepare_output ($results, $comp_point, $comp_line, $curword, $currchar, $curwordpos)};
+    print @{prepare_output ($results, $comp_point, $comp_line, $curword, $curwordpos)};
     ::debug_end();
     exit 0
 }
