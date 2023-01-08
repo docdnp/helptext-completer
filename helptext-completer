@@ -74,7 +74,7 @@ sub trace {
                      elsif($r eq GLOB  ){ $i.':'.$r.':'.$_ }
                      elsif($r eq CODE  ){ $i.':'.$r.':'.$_ }
                      elsif($r eq Option){ my @k = sort keys %$_;(map{ "$i:$r:$_=>[$h->{$_}]" }@k) }
-                     else{my @k = sort keys %$_;(map{ "$i:$r:$_=>[$h->{$_}]" }@k) }
+                     else{eval {my @k = sort keys %$_;(map{ "$i:$r:$_=>[$h->{$_}]" }@k)} }
                      } @{$_[0]}
     }
     while (<$script>) {
@@ -651,6 +651,7 @@ use Getopt::Long;
 my $helpOpt;
 my $comp_point;
 my $comp_line;
+my $tty;
 
 sub extractFromDataSection { my $starttag = shift;
     my @data;
@@ -880,7 +881,7 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
     my $result  = $results->{matches};
     ::debug("------------   : -------------------------");
     ::debug("Result == ".scalar(@$result));
-    ! @$result && return [];
+    ! @$result && return { result => [] };
     if (@$result == 1) {
         ::debug("Result == 1");
         my $resval = $result->[0]->{name};
@@ -902,8 +903,8 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
 
         if ($resval eq $curword) {
             ::debug("Current word is result: $resval == $curword");
-            $afterpoint !~ /^\s*$/ && return [];
-            return [map{sprintf("%s\n",$_->{name})}@$result];
+            $afterpoint !~ /^\s*$/ && return { result => [] };
+            return {result => [map{sprintf("%s\n",$_->{name})}@$result] };
         }
 
         my $beforelen = length($beforepoint_init);
@@ -942,11 +943,12 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
             ::debug("\$newopt_rest             : $newopt_rest");
             ::debug("\$curopt_rest             : $afterpoint");
             ::debug("\$suffix                  : $suffix");
-            return [ "<<HT_TPUT>>\n",(length($suffix))."\n",  $newopt_rest.' '.$suffix."\n" ];
+            my $ttyresult = $newopt_rest.' '.$suffix."\n".("\e[D" x length($suffix));
+            return { result => [$ttyresult], ttyready => 1 };
         };
         ::debug("Suffix  : [".($suffix)."]");
 
-        return [map{sprintf("%s$suffix%s\n",$_->{name}, $ts)}@$result];
+        return { result => [map{sprintf("%s$suffix%s\n",$_->{name}, $ts)}@$result] };
     } 
     ::debug("Result > 1");
     my $show_more = 0;
@@ -954,20 +956,27 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
     ::debug("SHOW MORE: $show_more");
     if($result->[0] && $result->[0]->{name} eq '<<HT_REDIRECT>>') {
         ::debug("Redirect: $result->[2]->{name}");
-        return [map{sprintf("%s\n",$_->{name})}@$result];
+        return { result => [map{sprintf("%s\n",$_->{name})}@$result] };
     } elsif ($show_more) {
-        return [map{sprintf("%-30s %-40s-- %-80s\n",$_->{name},$_->{args}, substr($_->{desc},0,90).($_->{desc} =~ /\.$/ ? '' : ' .').'..')}@$result];
+        return { result => [map{sprintf("%-30s %-40s-- %-80s\n",$_->{name},$_->{args}, substr($_->{desc},0,90).($_->{desc} =~ /\.$/ ? '' : ' .').'..')}@$result] };
     } else {
-        return [map{sprintf("%s\n",$_->{name})}@$result];
+        return { result => [map{sprintf("%s\n",$_->{name})}@$result] };
     }
+}
+
+sub write_to_tty { my $tty = shift;
+    require "sys/ioctl.ph";
+    open my $TTY, ">$tty" or die "$!";  
+    ioctl($TTY, &TIOCSTI, $_) for split "", join " ", @{$_[0]};
 }
 
 sub get_opts {
     GetOptions(
     'p|comp-point=i'     => \$comp_point,
     'l|comp-line=s'      => \$comp_line,
+    't|tty=s'            => \$tty,
     'd|log-debug=s'      => \&::init_debug_log,
-    't|trace'            => \&::trace,
+      'trace'            => \&::trace,
     's|completion=s'     => sub { printCompletion $_[1]; exit 0 },
     'h|help:s'           => sub { main::usage(*STDOUT, $_[1] eq 'all'); exit 0  },
     ) 
@@ -986,11 +995,14 @@ sub main {
 
     ::debug("Preparing ARGV: [".join('] [', @ARGV)."]");
     @ARGV < 3 && ::error("Missing mandatory arguments.");
-    
+
+
     my $curCliPos = shift @ARGV;
 
     ::debug("curCliPos: $curCliPos");
     init $ARGV[0];
+    main::debug_enabled() &&
+        map { ::debug($_.'='.$ENV{$_}) } sort { $a <=> $b } grep { $_=~/^HT_/ } (keys %ENV);
 
     my $curwordref = \$ARGV[$curCliPos];
     my $curword    =  $ARGV[$curCliPos];
@@ -1003,7 +1015,13 @@ sub main {
     my $result  = $results->{matches};
 
     ::debug ("RESULT: ". scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
-    print @{prepare_output ($results, $comp_point, $comp_line, $curword, $curwordpos)};
+    my $output = prepare_output ($results, $comp_point, $comp_line, $curword, $curwordpos);
+    ::debug ("Tty?: $tty, Output to tty? $output->{ttyready}");
+    if ($output->{ttyready}) {
+        write_to_tty $tty, $output->{result};
+    } else {
+        print @{$output->{result}};
+    }
     ::debug_end();
     exit 0
 }
@@ -1023,14 +1041,17 @@ Usage: ${FindBin::Script} [OPTIONS] ARGS...
   -l|--comp-line LINE
                 set the current line.
 
+  -t|--tty SHELL_TTY
+                set the tty of the shell that is using ${FindBin::Script}
+
   -s|--completion (bash|zsh)    
                 helper command for shell completion. Shell can be either 'bash' or 'zsh'.
 
   -d|--log-debug LOGFILE
                 dump debug messages to the given logfile.
 
-  -t|--trace 
-                activate tracing (together with -d).
+  -D|--trace 
+                activates tracing (implies -d to be active).
 
   -h|--help [all]
                 print this help text.
