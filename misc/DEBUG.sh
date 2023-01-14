@@ -39,28 +39,21 @@ optstty ()
 { 
     stty -a | sed -r 's/ = /=/g;s/(speed|rows|columns) ([^\s]+) /\1=\2 /g;s/ baud//;s/;/ /g' | tr ' ' "\n" | grep --color=auto -Ev '^$'
 }
+optstty-settings () 
+{ 
+    optstty | sed -r -n '/^time/,${/^[^t][^i][^m][^e]/p}'
+}
 optstty-global () 
 { 
-    optstty | grep --color=auto -E '='
+    optstty | sed -n '/^./,${p;/^time/q}'
 }
 optstty-off () 
 { 
-    optstty | grep --color=auto -E '^-'
+    optstty-settings | grep --color=auto -E '^-'
 }
 optstty-on () 
 { 
-    optstty | grep --color=auto -Ev '^-|='
-}
-quote () 
-{ 
-    local quoted=${1//\'/\'\\\'\'};
-    printf "'%s'" "$quoted"
-}
-quote_readline () 
-{ 
-    local quoted;
-    _quote_readline_by_ref "$1" ret;
-    printf %s "$ret"
+    optstty-settings | grep --color=auto -Ev '^-|='
 }
 optstty-stats () 
 {   
