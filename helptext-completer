@@ -139,7 +139,7 @@ sub init { my $self = $_[0];
 
 sub copyDescription { my ($dest, $source, $onlyPadding) = @_;
     my $self = $dest;
-    $dest->{pad2Args} == $source->{pad2Desc} 
+    $dest->{pad2Args} && $dest->{pad2Desc} && $dest->{pad2Args} == $source->{pad2Desc} 
         && return $dest->useArgsAsDesc();
     do {
         $dest->{desc} = ($onlyPadding ? "?" : $source->{desc});
@@ -285,12 +285,14 @@ sub Opt {
 }
 
 sub AnyOpt { my ($line, $lineno) = @_;
-    my $opt = (Opt($line, $lineno) || Command($line, $lineno))
+    my $opt = Opt($line, $lineno);
+    $opt && return $opt;
+    $opt = Command($line, $lineno)
 }
 
 sub DescLine { my $line = $_[0];
     my $padding_max = $padding_max+1;
-    $$line !~ /^ \s{$padding_max,}([^-].*) /x && return 0;
+    $$line !~ /^ \s{$padding_max,}([^-\<\[\(\{].*) /x && return 0;
     return new Option({ name => 'Line-'.$nameId++, line => $line, desc => $1, type => 'DESC'})
 }
 
@@ -438,13 +440,46 @@ sub ProbableCandidates {
 package HelptextCommand;
 
 my $cacheEnabled;
+my $guessHelpOpt;
 
 sub init {
     main::numberFromEnv (\$cacheEnabled, USE_CACHE => 1, 0, @_);
+    main::numberFromEnv (\$guessHelpOpt, GUESS_HELPOPT => 1, 0, @_);
+}
+
+sub guessHelpOpt { my ($cmd, $helpOpt, %hoptcnt, $opt) = $_[0];
+    foreach my $hopt (qw(:man --help -h)) {
+        my $helpcmd = $hopt =~ /^:(.*)/ ? "$1 $cmd" : "$cmd $hopt";
+        open my $cmdhandle, "$helpcmd 2>&1 |" or next; 
+        while (<$cmdhandle>) {
+            $opt = Opts::Find::AnyOpt(\$_);
+            $opt && ! $opt->{isCmd} && do {
+                $hoptcnt{$hopt}++;
+                next;
+            };
+            $opt && $opt->{isCmd} && $hoptcnt{CMD}{$hopt}++;
+        }
+    }
+    my @soptkeys = sort { $hoptcnt{$a}      <=> $hoptcnt{$b}      } keys %hoptcnt;
+    my $maxkey   = $soptkeys[-1];
+    $maxkey ne 'CMD' && return $maxkey;
+
+    my @scmdkeys = sort { $hoptcnt{CMD}{$a} <=> $hoptcnt{CMD}{$b} } keys %{$hoptcnt{CMD}};
+    $maxkey   = $scmdkeys[-1];
+    $maxkey && return $maxkey;
+
+    return $helpOpt
+}
+
+sub createCacheName { my $cmd = $_[0];
+    $cmd =~ s/\s+-\S+\s*/ /g;
+    $cmd =~ s/\s$//g;
+    $cmd =~ s/[\s-]+/_/g;
+    return "/tmp/htext.$ENV{USER}." . $cmd;
 }
 
 sub HelpCmdFromCache {
-    my ($cmd, $helpOpt, $find, $cmdCopy, $helpCmd) = ($_[0], $_[1], $_[2]);
+    my ($cmd, $helpOpt, $cmdCopy, $helpCmd) = ($_[0], $_[1], $_[2]);
     $helpOpt =~ /^:(.*)/ && do {
         ::debug("Found helpopt: <".(caller(2))[3].">: $helpOpt [$1]");
         $helpCmd = "$1 ";
@@ -452,11 +487,7 @@ sub HelpCmdFromCache {
     };
     ::debug("Calling: <".(caller(2))[3].">: $helpCmd$cmd $helpOpt");
     $cacheEnabled || return "$helpCmd$cmd $helpOpt";
-    $cmdCopy = $cmd;
-    $cmdCopy =~ s/\s+-\S+\s*/ /g;
-    $cmdCopy =~ s/\s$//g;
-    $cmdCopy =~ s/[\s-]+/_/g;
-    my $helpCmdCacheFile = "/tmp/htext.$ENV{USER}." . $cmdCopy;
+    my $helpCmdCacheFile = createCacheName($cmd);
     if (!-e "$helpCmdCacheFile") {
         ::debug ("Caching to file: ".$helpCmdCacheFile);
         open(my $CMD, "$helpCmd$cmd $helpOpt|") or return "$helpCmd$cmd $helpOpt";
@@ -507,6 +538,10 @@ sub GuessLastSubcommand {
 
 sub HelpCmdForSubcommand {
     my ($cmd, $helpOpt, $cliArgs) = @_;
+    $guessHelpOpt && do {
+        my $cache = createCacheName($cmd);
+        -e $cache || ($helpOpt = guessHelpOpt($cmd, $helpOpt))
+    };
     my ($candidate, $prevCandidateCmdPos, $candidatePos) = GuessLastSubcommand($cliArgs);
     $candidatePos < 0 && HelpCmdFromCache ($cmd, $helpOpt) && return { cmd => $cmd, envns => $cmd };
 
@@ -616,19 +651,15 @@ sub knownOptWithDescription { my ($me, $opt) = @_;
 }
 
 sub tryToFixDescription { my ($me, $opt, $line) = @_;
-    if ($opt && !$opt->{pad2Desc}) {
-        my $descOpt = $me->knownOptWithDescription($opt);
+    ! $opt && return;
+    if (!$opt->{pad2Desc} && $opt->{numArgs} > 1) {
+        $opt->{args} =~ /^(?:[\w-\d]+)(?:\s+[\w-\d]+)*$/ 
+            && $opt->useArgsAsDesc()
+    }
+    if (!$opt->{pad2Desc}) {
         my $nextOpt = Opts::Find::DescLine(\$_);
         ::debug("Check opt: ".($opt && $opt->{name}));
-        ::debug("Known opt: ".($descOpt && $descOpt->{name}.": $descOpt->{pad2Desc}"));
         ::debug("Next  opt: ".($nextOpt && $nextOpt->{name}.": $nextOpt->{pad2Desc}"));
-        $nextOpt && $descOpt 
-                 && $nextOpt->{pad2Desc} == $descOpt->{pad2Desc} 
-                 && $opt->copyDescription($nextOpt)
-                 && return;
-
-        $descOpt && $opt->copyDescription($descOpt, 1)
-            && return;
 
         $nextOpt && $opt->copyDescription($nextOpt) 
             && return;
@@ -636,7 +667,7 @@ sub tryToFixDescription { my ($me, $opt, $line) = @_;
         ::debug("Buffering: ".($opt && $opt->{name}));
         push(@{$me->{optbuffer}}, $opt);
     }
-    elsif ($opt && $opt->{pad2Desc} && @{$me->{optbuffer}}) {
+    elsif ($opt->{pad2Desc} && @{$me->{optbuffer}}) {
         foreach my $bopt (@{$me->{optbuffer}}) {
             $bopt->copyDescription($opt, 1);
         }
@@ -958,7 +989,13 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
         ::debug("Redirect: $result->[2]->{name}");
         return { result => [map{sprintf("%s\n",$_->{name})}@$result] };
     } elsif ($show_more) {
-        return { result => [map{sprintf("%-30s %-40s-- %-80s\n",$_->{name},$_->{args}, substr($_->{desc},0,90).($_->{desc} =~ /\.$/ ? '' : ' .').'..')}@$result] };
+        return { result => [map{
+            $_->{desc} =~ s/[\'\`]//g;
+            sprintf("%-30s %-40s-- %-80s\n"
+                    , $_->{name}, $_->{args}
+                    , substr($_->{desc},0,$ENV{COLUMNS} ? ($ENV{COLUMNS}-80) : 80)
+                        .($_->{desc} =~ /\.$/ ? '' : ' .').'..')
+                    }@$result] };
     } else {
         return { result => [map{sprintf("%s\n",$_->{name})}@$result] };
     }
@@ -991,6 +1028,7 @@ sub init { my ($appname, $mainapp) = (uc($_[0]), uc($_[1]));
 
 sub main {
     ::register_usage(\&usage);
+    
     get_opts || do { ::main::usage ; exit 1 } ;
 
     ::debug("Preparing ARGV: [".join('] [', @ARGV)."]");
