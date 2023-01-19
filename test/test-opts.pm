@@ -142,11 +142,11 @@ subtest "Detect random long or short opts followed by random long or short opt" 
         is($opt->{name}, $optSpec->{name}, "Expected name $optSpec->{name}. Actual is $opt->{name}.");
         is($opt->{desc}, $optSpec->{desc}, "Expected description '$optSpec->{desc}'. Actual is '$opt->{desc}'.");
         is($opt->{numArgs}, $optSpec->{numArgs}, "Expected arg count $optSpec->{numArgs}. Actual is $opt->{numArgs}. Args:  [$opt->{args}]");
-        ok($opt->{next}, "Option $optSpec->{name} has next option.");
+        ok($opt->{next}, "Option $optSpec->{name} has next option.") || return;
         is($opt->{next}->{name}, $optSpec->{nextName}, "Expected next opt's name $optSpec->{nextName}. Actual is $opt->{next}->{name}");
         is($opt->{next}->{args}, $optSpec->{firstArgs}, "Expected next opt's args '$optSpec->{firstArgs}'. Actual is '$opt->{next}->{args}'");
         if ($optSpec->{useNnopt}) {
-            ok($opt->{next}->{next}, "Next option $optSpec->{nextName} has also next option.");
+            ok($opt->{next}->{next}, "Next option $optSpec->{nextName} has also next option.") || return;
             is($opt->{next}->{next}->{name}, $optSpec->{nextNextName}, "Expected next-next opt's name $optSpec->{nextNextName}. Actual is $opt->{next}->{next}->{name}");
             is($opt->{next}->{next}->{args}, $optSpec->{firstArgs}, "Expected next-next opt's args '$optSpec->{firstArgs}'. Actual is '$opt->{next}->{next}->{args}'");
         }

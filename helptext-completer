@@ -2,16 +2,24 @@
 use strict;
 
 package main;
+sub debug { 1 }
 sub fromEnv {  my  ($envvar, $defaultval, $envns, $mainapp) = @_;
     $envns = defined $envns ? uc($envns) : uc($ARGV[0]);
     $mainapp = uc($mainapp);
     $envns   =~ s/-/_/g;
     $mainapp =~ s/-/_/g;
-    my $ret = ( $envns   && $ENV{'HT_APP_'.$envns.'_'.$envvar} 
-             || $mainapp && $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar}
-             || $ENV{'HT_'.$envvar} 
-             || $defaultval );
-    return $ret;
+
+    ::debug ("Checking: $envvar, default: $defaultval, envns: $envns, mainapp: $mainapp");
+    $envns   && defined $ENV{'HT_APP_'.$envns.'_'.$envvar} 
+             && ::debug("Result: ".$ENV{'HT_APP_'.$envns.'_'.$envvar})
+             && return  $ENV{'HT_APP_'.$envns.'_'.$envvar};
+    $mainapp && defined $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar}
+             && ::debug("Result: ".$ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar})
+             && return  $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar};
+                defined $ENV{'HT_'.$envvar} 
+             && ::debug("Result: ".$ENV{'HT_'.$envvar})
+             && return  $ENV{'HT_'.$envvar};
+    return $defaultval;
 }
 
 sub redirectOptFromEnv {  my  ($optname, $defaultval, $envns, $mainapp) = @_;
@@ -49,13 +57,18 @@ sub logdebug      { my $caller = (caller(1))[3]; if ($caller =~ /debug_log_line/
 sub logdebug_end  { for(1..10) { print D ((caller(1))[3], " # ---------------------------------------------------- #\n" )} }
 sub noop          { 1 }
 sub usage         { 1 }
-sub debug_enabled { *{debug} != \&noop }
+sub debug_enabled { *{debug} != \&noop;}
 
 sub init_debug_log {
     my  ($optname, $DEBUG_FILE) = @_;
     !$DEBUG_FILE && return;
     open D, ">>$DEBUG_FILE"; 
-    *debug     = \&logdebug;
+    my $loglevel = 0;
+    ::numberFromEnv(\$loglevel, DEBUG_LOG_LEVEL => $loglevel, 0);
+    $loglevel >= 0 && (*debug  = \&logdebug);
+    $loglevel >= 1 && (*debug1 = \&logdebug);
+    $loglevel >= 2 && (*debug2 = \&logdebug);
+    $loglevel >= 3 && (*debug3 = \&logdebug);
     *debug_end = \&logdebug_end;
 }
 
@@ -98,6 +111,9 @@ sub trace {
 sub register_usage { *usage = shift ; 
                       init() }
 sub init           { *debug     = \&noop; 
+                     *debug1    = \&noop; 
+                     *debug2    = \&noop; 
+                     *debug3    = \&noop; 
                      *debug_end = \&noop; }
 
 if (!defined $ENV{HT_COMPLETER_UNITTEST}) {
@@ -118,9 +134,9 @@ sub new { my ($class, $args) = @_;
     $args && ($self = { %$self , %$args });
     $self = bless($self, $class)->init();
     # Internals::SvREADONLY(%$self,1);
-    while(my ($k,$v) = each %$self) {
-        grep (/$k/, @RW )|| Internals::SvREADONLY($v,1);
-    }
+    # while(my ($k,$v) = each %$self) {
+    #     grep (/$k/, @RW )|| Internals::SvREADONLY($v,1);
+    # }
     return $self
 }
 
@@ -304,7 +320,7 @@ sub EmptyLine { my $line = $_[0];
 sub Command  {
     my ($line, $lineno) = @_;
     $$line=~/^$reCommand$/ || return;
-    ::debug ("Found COMMAND->START     : cmd $2.");
+    ::debug3 ("Found COMMAND->START     : cmd $2.");
     my $opt = new Option { line     => $line, padding  => $1, name     => $2,
                             desc     => $3   , isCmd    => 1 , type     => 'CMD',
                             lineno   => $lineno };
@@ -379,7 +395,7 @@ sub KeepByMajoritysMatchingProp {
     delete %{$hist}{$mostCandidatesPropIdx};
     my @remove;
     foreach my $candidateIdx (keys %$hist) {
-        ::debug("Marking for removal: All candidates with property".($propname?" '$propname'":'')." len=$candidateIdx, cnt=".(scalar keys %{$hist->{$candidateIdx}}));
+        ::debug1("Marking for removal: All candidates with property".($propname?" '$propname'":'')." len=$candidateIdx, cnt=".(scalar keys %{$hist->{$candidateIdx}}));
         foreach my $len (keys %{$hist->{$candidateIdx}}) {
             $candidates->[$len]->{type} =~ /EMPTY|DESC/ && next;
             push(@remove, $len);
@@ -412,12 +428,12 @@ sub DropCmdIfNoNeighbor {
     ::debug("line distance: $maxNeighborDistance");
     my @remove;
     for (0..@commands-1) {
-        ::debug("checking $_ ".$commands[$_]->{lineno});
+        ::debug1("checking $_ ".$commands[$_]->{lineno});
         my ($cond1, $cond2) = ($_ == @commands-1, $_ == 0);
         $_ < @commands - 1 && ($cond1 = $commands[$_+1]->{lineno} - $commands[$_]->{lineno}   > $maxNeighborDistance);
         $_ > 0             && ($cond2 = $commands[$_]->{lineno}   - $commands[$_-1]->{lineno} > $maxNeighborDistance);
         $cond1 && $cond2 
-            && ::debug("$_: Marking for removal: ".$commands[$_]->{name}.": ".$commands[$_]->{index})
+            && ::debug1("$_: Marking for removal: ".$commands[$_]->{name}.": ".$commands[$_]->{index})
             && push(@remove, $commands[$_]->{index});
     }
     foreach my $rm (sort {$b <=> $a} (@remove)) {
@@ -448,26 +464,37 @@ sub init {
 }
 
 sub guessHelpOpt { my ($cmd, $helpOpt, %hoptcnt, $opt) = $_[0];
+    ::debug("Searching for 'optimal' help source: cmd='$cmd', helpopt='$helpOpt'");
     foreach my $hopt (qw(:man --help -h)) {
         my $helpcmd = $hopt =~ /^:(.*)/ ? "$1 $cmd" : "$cmd $hopt";
         open my $cmdhandle, "$helpcmd 2>&1 |" or next; 
         while (<$cmdhandle>) {
             $opt = Opts::Find::AnyOpt(\$_);
             $opt && ! $opt->{isCmd} && do {
-                $hoptcnt{$hopt}++;
+                $hoptcnt{OPT}{$hopt}++;
                 next;
             };
             $opt && $opt->{isCmd} && $hoptcnt{CMD}{$hopt}++;
         }
     }
-    my @soptkeys = sort { $hoptcnt{$a}      <=> $hoptcnt{$b}      } keys %hoptcnt;
+    my @soptkeys = sort { $hoptcnt{OPT}{$a} <=> $hoptcnt{OPT}{$b} } keys %{$hoptcnt{OPT}};
     my $maxkey   = $soptkeys[-1];
-    $maxkey ne 'CMD' && return $maxkey;
+    $maxkey && do {
+        foreach my $key (@soptkeys) {
+            ::debug("Number of options for help opt '$key': $hoptcnt{OPT}{$key}");    
+        }
+        ::debug("Found most options for '$maxkey': $hoptcnt{OPT}{$maxkey}");
+        return $maxkey;
+    };
 
     my @scmdkeys = sort { $hoptcnt{CMD}{$a} <=> $hoptcnt{CMD}{$b} } keys %{$hoptcnt{CMD}};
     $maxkey   = $scmdkeys[-1];
-    $maxkey && return $maxkey;
+    $maxkey && do {
+        ::debug("Found more commands than options. '$maxkey': $hoptcnt{CMD}{$maxkey}");
+        return $maxkey;
+    };
 
+    ::debug("Keeping default/user-provided help opt: $helpOpt");
     return $helpOpt
 }
 
@@ -480,10 +507,11 @@ sub createCacheName { my $cmd = $_[0];
 
 sub HelpCmdFromCache {
     my ($cmd, $helpOpt, $cmdCopy, $helpCmd) = ($_[0], $_[1], $_[2]);
-    $helpOpt =~ /^:(.*)/ && do {
-        ::debug("Found helpopt: <".(caller(2))[3].">: $helpOpt [$1]");
+    $helpOpt =~ /^:(.*?)(\.)?$/ && do {
+        ::debug("Found helpopt: <".(caller(2))[3].">: $helpOpt [$1]$2");
         $helpCmd = "$1 ";
         $helpOpt = '';
+        $2 eq '.' && ($cmd='');
     };
     ::debug("Calling: <".(caller(2))[3].">: $helpCmd$cmd $helpOpt");
     $cacheEnabled || return "$helpCmd$cmd $helpOpt";
@@ -507,6 +535,13 @@ sub Open {
 
 sub IsSubcommand {
     my ($cmd, $helpOpt, $find) = @_;
+    ::debug("Command '$cmd', help opt '$helpOpt'. Try to guess optimal help source: $guessHelpOpt");
+    $guessHelpOpt && do {
+        my $cache = createCacheName($cmd);
+        -e $cache || ($helpOpt = guessHelpOpt($cmd, $helpOpt));
+        ::debug("The preferred helpopt is: $helpOpt");
+    };
+
     $cmd eq $find && return 0;
     my (@options, $opt);
     my $stream  =  Open($cmd, $helpOpt);
@@ -526,7 +561,7 @@ sub GuessLastSubcommand {
     for(; $i > 0; $i--){
         if (@$cliArgs[$i] && @$cliArgs[$i] !~ /^-/) {
             $cnt++; 
-            ::debug ("SEEK: Found index: $i");
+            ::debug3 ("SEEK: Found index: $i");
             $cnt == 1 && ($j = $i);
             $cnt == 2 && last
         }
@@ -538,9 +573,11 @@ sub GuessLastSubcommand {
 
 sub HelpCmdForSubcommand {
     my ($cmd, $helpOpt, $cliArgs) = @_;
+    ::debug("Command '$cmd', help opt '$helpOpt'. Try to guess optimal help source: $guessHelpOpt");
     $guessHelpOpt && do {
         my $cache = createCacheName($cmd);
-        -e $cache || ($helpOpt = guessHelpOpt($cmd, $helpOpt))
+        -e $cache || ($helpOpt = guessHelpOpt($cmd, $helpOpt));
+        ::debug("The preferred helpopt is: $helpOpt");
     };
     my ($candidate, $prevCandidateCmdPos, $candidatePos) = GuessLastSubcommand($cliArgs);
     $candidatePos < 0 && HelpCmdFromCache ($cmd, $helpOpt) && return { cmd => $cmd, envns => $cmd };
@@ -582,12 +619,12 @@ sub GuessLastOption {
     my $cnt = 0;
     my $i = scalar(@$cliArgs)-1;
     for(; $i > 0; $i--){
-        ::debug ("CHECK: SEEK: $i -> '@$cliArgs[$i]'");
+        ::debug3 ("CHECK: SEEK: $i -> '@$cliArgs[$i]'");
         if (@$cliArgs[$i] && @$cliArgs[$i] =~ /^-/) {
-            ::debug ("CHECK: SEEK: Found index: $i");
+            ::debug3 ("CHECK: SEEK: Found index: $i");
             my $arg = $cliArgs->[$i];
             $arg =~ s/^([^\\]*?)=.*/$1/;
-            ::debug ("CHECK: SEEK: Result: $i -> $arg");
+            ::debug3 ("CHECK: SEEK: Result: $i -> $arg");
             return ($arg, $i);
         }
     }
@@ -602,17 +639,17 @@ sub LastOption {
     my $i = scalar(@$cliArgs)-1;
     my $optIdx;
     while ($i) {
-        ::debug ("CHECK: SEEK : ".($i)." -> '@$cliArgs[$i]'");
+        ::debug2 ("CHECK: SEEK : ".($i)." -> '@$cliArgs[$i]'");
         ($lastOptName, $optIdx) = GuessLastOption([@$cliArgs[0..$i--]]);
         $optIdx <= $subcmdpos && do { ::debug ("optIdx to low: $optIdx <= $subcmdpos") ; return };
-        ::debug ("CHECK: GUESS: $lastOptName");
+        ::debug2 ("CHECK: GUESS: $lastOptName");
         $lastOptName || next;
         $optIdx == @$cliArgs - 1 && next;
         my @matchingOptDefs = grep { ($_->{name} eq $lastOptName ) && $_  } @$optDefs;
-        ::debug ("CHECK: GUESS: OPTIDX: $optIdx CLIARGS: ".(@$cliArgs - 1));
+        ::debug2 ("CHECK: GUESS: OPTIDX: $optIdx CLIARGS: ".(@$cliArgs - 1));
         # @matchingOptDefs > 1 && return;
         $lastOpt = $matchingOptDefs[0];
-        ::debug ("CHECK: SEEK: RESULT: ".($i)." -> '".($lastOpt && $lastOpt->{name})."'");
+        ::debug2 ("CHECK: SEEK: RESULT: ".($i)." -> '".($lastOpt && $lastOpt->{name})."'");
         $lastOpt && return ($lastOpt, $optIdx);
     }
 }
@@ -634,7 +671,7 @@ sub inCache  { my ($me, $opt) = @_; exists $me->{optcache}->{$opt->{name}} }
 sub toCache  { my ($me, $opt) = @_; $me->{optcache}->{$opt->{name}} = $opt }
 sub store    { my ($me, $opt) = @_;
     do { ( ! $opt || $me->inCache($opt) ) && next;
-        ::debug("Storing: $opt->{name} args:[$opt->{args}] padding:[$opt->{padding}] pad2Desc:[$opt->{pad2Desc}]");
+        ::debug3("Storing: $opt->{name} args:[$opt->{args}] padding:[$opt->{padding}] pad2Desc:[$opt->{pad2Desc}]");
         push @{$me->{allopts}}, $me->toCache($opt);
     }
     while($opt = $opt->{next});
@@ -658,13 +695,13 @@ sub tryToFixDescription { my ($me, $opt, $line) = @_;
     }
     if (!$opt->{pad2Desc}) {
         my $nextOpt = Opts::Find::DescLine(\$_);
-        ::debug("Check opt: ".($opt && $opt->{name}));
-        ::debug("Next  opt: ".($nextOpt && $nextOpt->{name}.": $nextOpt->{pad2Desc}"));
+        ::debug2("Check opt: ".($opt && $opt->{name}));
+        ::debug2("Next  opt: ".($nextOpt && $nextOpt->{name}.": $nextOpt->{pad2Desc}"));
 
         $nextOpt && $opt->copyDescription($nextOpt) 
             && return;
 
-        ::debug("Buffering: ".($opt && $opt->{name}));
+        ::debug2("Buffering: ".($opt && $opt->{name}));
         push(@{$me->{optbuffer}}, $opt);
     }
     elsif ($opt->{pad2Desc} && @{$me->{optbuffer}}) {
@@ -724,7 +761,7 @@ sub find_options{
     my $fullCmd =  HelptextCommand::HelpCmdForSubcommand($command, $helpOpt, $cliArgs);
 
     $fullCmd->{cmd} ne $command && init ($fullCmd->{envns}, $command);
-    ::debug("Full cmd: $fullCmd->{cmd}");
+    ::debug1("Full cmd: $fullCmd->{cmd}");
 
     my $stream  =  HelptextCommand::Open($fullCmd->{cmd}, $helpOpt);
        $stream  || return;
@@ -744,26 +781,26 @@ sub find_options{
 
 sub redirect {
     my ($results, $fullCmd, $cliargs, $opt, $msg) = @_;
-    ::debug("Check redirect 01: ".  @$results);
-    ::debug("Check redirect 01: cmdctx: ".  ($fullCmd->{cmd}));
-    ::debug("Check redirect 01: envns : ".  ($fullCmd->{envns}));
-    ::debug("Check redirect 01: opt   : ".  ($opt ? $opt->{name} . ' ' . $opt->{args} . ' ' . $opt->{numArgs} . ' ' . $opt->{needsArgs} : 'none'));
+    ::debug1("Check redirect 01: ".  @$results);
+    ::debug1("Check redirect 01: cmdctx: ".  ($fullCmd->{cmd}));
+    ::debug1("Check redirect 01: envns : ".  ($fullCmd->{envns}));
+    ::debug1("Check redirect 01: opt   : ".  ($opt ? $opt->{name} . ' ' . $opt->{args} . ' ' . $opt->{numArgs} . ' ' . $opt->{needsArgs} : 'none'));
     @$results && return $results;
     
-    ::debug("Check redirect 02: ".  @$results);
+    ::debug1("Check redirect 02: ".  @$results);
     my $redirectVar;
     if($opt) {
-        ::debug("Check redirect 02.1: $opt->{name} $opt->{needsArgs}");
+        ::debug1("Check redirect 02.1: $opt->{name} $opt->{needsArgs}");
         ! $opt->{needsArgs} && return $results;
         $redirectVar = $opt->{name};
     } else {
-        ::debug("Check redirect 02.2: $fullCmd->{envns}");
+        ::debug1("Check redirect 02.2: $fullCmd->{envns}");
         $fullCmd->{subcmd} && @$cliargs - $fullCmd->{subcmd}->{pos} > 2  && return $results;
         $redirectVar = $fullCmd->{envns};
     }
-    ::debug("Check redirect: $msg: ". $redirectVar);
+    ::debug1("Check redirect: $msg: ". $redirectVar);
     my $redirect = main::redirectOptFromEnv($redirectVar => "", $fullCmd->{envns}, $cliargs->[0]);
-    ::debug("Check redirect: found: ". $redirect);
+    ::debug1("Check redirect: found: ". $redirect);
     $redirect && do {
         @$cliargs = grep { $_ ne '=' } @$cliargs;
         my @cmd = split(/\s+/, $fullCmd->{cmd});
@@ -785,19 +822,19 @@ sub redirect {
 
 sub needs_args { my ($opt, $optIndex, $cliArgs, $currArg) = @_;
     my $prevArg = $cliArgs->[-2];
-    ::debug("check 0: $opt->{hasOptArgs} [$prevArg] [$currArg]");
+    ::debug2("check 0: $opt->{hasOptArgs} [$prevArg] [$currArg]");
     $opt->{hasOptArgs} && $prevArg ne '=' && ($currArg eq '' || $currArg =~ /^\\?-/)
         && return 0;
-    ::debug("check 1");
+    ::debug2("check 1");
     ($currArg eq '' || $currArg eq '=') && do {
-        ::debug("check 2");
+        ::debug2("check 2");
         $prevArg eq '='             && return $opt->{numArgs};
-        ::debug("check 3");
+        ::debug2("check 3");
         $prevArg eq $opt->{name}    && return $opt->{numArgs};
     };
-    ::debug("check 4");
+    ::debug2("check 4");
     my $missingArgs  = $opt->{numArgs} - (@$cliArgs-1-$optIndex);
-    ::debug("missing arg count: $missingArgs");
+    ::debug2("missing arg count: $missingArgs");
     return $missingArgs < 0 ? 0 : ++$missingArgs
 }
 
@@ -806,8 +843,8 @@ sub list_matches {
     my $prevArg = $cliArgs->[-2];
     my $currArg = quotemeta($cliArgs->[-1]);
     my $command = @$cliArgs[0];
-    ::debug ("ARGV: [". join('] [', @$cliArgs).']');
-    ::debug ("ARGV: CURARG: $currArg");
+    ::debug1 ("ARGV: [". join('] [', @$cliArgs).']');
+    ::debug1 ("ARGV: CURARG: $currArg");
 
     # Previous arg is -- => don't return anything
     ($prevArg =~ /^(?:--|>+)$/ ) && do {
@@ -816,36 +853,36 @@ sub list_matches {
     };
 
     my ($allOpts, $optcache, $fullCmd)    = find_options $cliArgs, $command, $helpOpt;
-    ::debug("We found ".scalar(@$allOpts)." options.");
+    ::debug1("We found ".scalar(@$allOpts)." options.");
     my $filteredOpts = Opts::Filter::ProbableCandidates(\@$allOpts, $command);
-    ::debug("After filters: ".scalar(@$filteredOpts)." options remaining.");
+    ::debug1("After filters: ".scalar(@$filteredOpts)." options remaining.");
     ::debug("Filtered opts: [".join('] [', map { $_->{name} } @$filteredOpts)."]");
     my ($opt, $i) = HelptextCommand::LastOption($cliArgs, 
         ($fullCmd->{subcmd} && $fullCmd->{subcmd}->{pos}), $filteredOpts);
 
-    ::debug("Check step 00: $opt $i");
+    ::debug3("Check step 00: $opt $i");
     my $matches;
     if ($opt) {
         $opt->{cliindex} = $i;
-        ::debug("Last option: $opt->{name}");
+        ::debug2("Last option: $opt->{name}");
         ($opt->{needsArgs} = needs_args($opt, $i, $cliArgs, $currArg)) && do {
-            ::debug ("Last option: $opt->{name} needs args");
+            ::debug2 ("Last option: $opt->{name} needs args");
             $matches = redirect([], $fullCmd, $cliArgs, $opt, "OPT NEEDS ARGS")
         };        
     }
 
     !$matches && main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) && do {
-        ::debug("Check step 01: ".scalar(@$filteredOpts));
-        ::debug("SHOW ALL?".main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) );
+        ::debug3("Check step 01: ".scalar(@$filteredOpts));
+        ::debug3("SHOW ALL?".main::fromEnv(SHOW_ALL => 0, $fullCmd->{envns}, $command) );
         $matches = redirect([grep { $_->{name} =~ /^$currArg/ && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "SHOW ALL")
     };
     !$matches && !$currArg && do {
-        ::debug("Check step 02");
+        ::debug3("Check step 02");
         $matches = redirect([grep { $_->{isCmd} && $_ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO CUR ITEM")
     };
 
     !$matches && do {
-        ::debug("Check step 03");
+        ::debug3("Check step 03");
         $matches = redirect([grep { $_->{name} =~ /^$currArg/ } @$filteredOpts], $fullCmd, $cliArgs, $opt, "NO MATCH")
     };
 
@@ -855,7 +892,7 @@ sub list_matches {
 sub prepare_argv {
     my ($comp_point, $comp_line, $curword) = @_;
     ! $comp_point || ! $comp_line && do {
-        ::debug("No COMP_LINE/COMP_POINT data available. len(COMP_LINE)="
+        ::debug1("No COMP_LINE/COMP_POINT data available. len(COMP_LINE)="
         .len($comp_line).", COMP_POINT=$comp_point");
         return;
     };
@@ -863,10 +900,10 @@ sub prepare_argv {
     # debug output
     my ($comp_line_disp, $comp_line_suffix);
     main::debug_enabled() && do {
-        ::debug("COMP_LINE original : ".$comp_line);
+        ::debug1("COMP_LINE original : ".$comp_line);
         my $point_vs_len     = $comp_point + 2 - length($comp_line);
            $comp_line_suffix = $point_vs_len < 0 ? '' : (' ' x $point_vs_len);
-        ::debug("COMP_LINE point-len: ".$point_vs_len);
+        ::debug1("COMP_LINE point-len: ".$point_vs_len);
     };
 
     my $debugout = sub { ! main::debug_enabled() && return;
@@ -876,14 +913,14 @@ sub prepare_argv {
         substr($comp_line_disp, $comp_point+1, 0) = ']';
         substr($comp_line_disp, $comp_point  , 0) = '[';
         $linespec && 
-            ::debug("$caller: COMP_LINE $linespec: ".$comp_line);
-        ::debug("$caller: COMP_LINE w/ point : ".$comp_line_disp);
+            ::debug1("$caller: COMP_LINE $linespec: ".$comp_line);
+        ::debug1("$caller: COMP_LINE w/ point : ".$comp_line_disp);
     };
     $debugout->();
 
     my $currchar = substr($comp_line, $comp_point, 1);
     my $curword_ = $$curword;
-    ::debug("Curword       : ".$$curword);
+    ::debug2("Curword       : ".$$curword);
     my $cliPosWord;# = index($comp_line, $$curword.' ', $comp_point);
     my $lastPosWord = $cliPosWord;
     my $searchFrom = 0;
@@ -893,12 +930,12 @@ sub prepare_argv {
         $searchFrom  = $cliPosWord + 1;
         $cliPosWord - $comp_point == 1 && do {
             $$curword = "";
-            ::debug("comp_point $comp_point directly before $curword_. Cutting it to '$$curword'.");
+            ::debug2("comp_point $comp_point directly before $curword_. Cutting it to '$$curword'.");
             last;
         };
         $comp_point >= $cliPosWord && $comp_point <= $cliPosWord + length($$curword) && do {
             $$curword = substr($$curword, 0, $comp_point-$cliPosWord);
-            ::debug("comp_point $comp_point within $curword_. Cutting it to $$curword.");
+            ::debug2("comp_point $comp_point within $curword_. Cutting it to $$curword.");
             last;
         };
     }
@@ -910,8 +947,8 @@ sub prepare_argv {
 
 sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos) = @_;
     my $result  = $results->{matches};
-    ::debug("------------   : -------------------------");
-    ::debug("Result == ".scalar(@$result));
+    ::debug2("------------   : -------------------------");
+    ::debug2("Result == ".scalar(@$result));
     ! @$result && return { result => [] };
     if (@$result == 1) {
         ::debug("Result == 1");
@@ -921,15 +958,15 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
         my $beforepoint_init = substr($comp_line, $curwordpos, $comp_point - $curwordpos);
         my $afterpoint  = substr($comp_line, $comp_point, $maxpoint - $comp_point);
         main::debug_enabled() && do {
-            ::debug("\$curword      : $curword");
-            ::debug("\$curwordpos   : $curwordpos");
-            ::debug("\$comp_point   : $comp_point");
-            ::debug("\$comp_line    : $comp_line");
-            ::debug("\$resval       : $resval");
-            ::debug("\$nextargpos   : $nextargpos");
-            ::debug("\$maxpoint     : $maxpoint");
-            ::debug("\$afterpoint   : $afterpoint");
-            ::debug("\$beforepoint  : $beforepoint_init");
+            ::debug3("\$curword      : $curword");
+            ::debug3("\$curwordpos   : $curwordpos");
+            ::debug3("\$comp_point   : $comp_point");
+            ::debug3("\$comp_line    : $comp_line");
+            ::debug3("\$resval       : $resval");
+            ::debug3("\$nextargpos   : $nextargpos");
+            ::debug3("\$maxpoint     : $maxpoint");
+            ::debug3("\$afterpoint   : $afterpoint");
+            ::debug3("\$beforepoint  : $beforepoint_init");
         };
 
         if ($resval eq $curword) {
@@ -942,8 +979,8 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
         my ($curopt, $cutlen) = ({opt=>0}, 0);
         do {
             my $beforepoint = substr($comp_line, $curwordpos, $comp_point - $curwordpos - $cutlen);
-            ::debug("\$beforepoint  : $beforepoint $cutlen ".($beforelen));
-            ::debug("Before/After   : [$beforepoint.$afterpoint] ");
+            ::debug3("\$beforepoint  : $beforepoint $cutlen ".($beforelen));
+            ::debug3("Before/After   : [$beforepoint.$afterpoint] ");
             $curopt = {
                 opt => $results->{optcache}->{$beforepoint.$afterpoint},
                 beforepoint => $beforepoint
@@ -953,10 +990,10 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
         while (!$curopt->{opt} && (++$cutlen < $beforelen));
 
         main::debug_enabled() && $curopt->{opt} && do {
-            ::debug("\$curopt  : $curopt->{opt}->{name}");
-            ::debug("\$beforepoint  : $curopt->{beforepoint}");
-            ::debug("Before/After: [$curopt->{beforepoint}$afterpoint] ");
-            ::debug("Cached Opt  : [".($curopt->{opt} && $curopt->{opt}->{name})."]");
+            ::debug3("\$curopt  : $curopt->{opt}->{name}");
+            ::debug3("\$beforepoint  : $curopt->{beforepoint}");
+            ::debug3("Before/After: [$curopt->{beforepoint}$afterpoint] ");
+            ::debug3("Cached Opt  : [".($curopt->{opt} && $curopt->{opt}->{name})."]");
         };
 
         my $suffix = $curopt->{opt} ? ' '.$curopt->{beforepoint} : ' ';
@@ -965,28 +1002,28 @@ sub prepare_output {my ($results, $comp_point, $comp_line, $curword, $curwordpos
         $curopt->{opt} && do {
             $resval  =~ /^$beforepoint_init(.*)/;
             my $newopt_rest = $1;
-            ::debug("--------------------------------------------------------");
-            ::debug("\$curopt->{name}          : $curopt->{opt}->{name}");
-            ::debug("\$newopt                  : $resval");
-            ::debug(" - contains beforepoint? : $curopt->{beforepoint}");
-            ::debug("\$curopt->{beforepoint}   : $curopt->{beforepoint}");
-            ::debug("\$beforepoint_init        : $beforepoint_init");
-            ::debug("\$newopt_rest             : $newopt_rest");
-            ::debug("\$curopt_rest             : $afterpoint");
-            ::debug("\$suffix                  : $suffix");
+            ::debug3("--------------------------------------------------------");
+            ::debug3("\$curopt->{name}          : $curopt->{opt}->{name}");
+            ::debug3("\$newopt                  : $resval");
+            ::debug3(" - contains beforepoint? : $curopt->{beforepoint}");
+            ::debug3("\$curopt->{beforepoint}   : $curopt->{beforepoint}");
+            ::debug3("\$beforepoint_init        : $beforepoint_init");
+            ::debug3("\$newopt_rest             : $newopt_rest");
+            ::debug3("\$curopt_rest             : $afterpoint");
+            ::debug3("\$suffix                  : $suffix");
             my $ttyresult = $newopt_rest.' '.$suffix."\n".("\e[D" x length($suffix));
             return { result => [$ttyresult], ttyready => 1 };
         };
-        ::debug("Suffix  : [".($suffix)."]");
+        ::debug2("Suffix  : [".($suffix)."]");
 
         return { result => [map{sprintf("%s$suffix%s\n",$_->{name}, $ts)}@$result] };
     } 
-    ::debug("Result > 1");
+    ::debug2("Result > 1");
     my $show_more = 0;
     main::numberFromEnv(\$show_more, SHOW_MORE => 0);
-    ::debug("SHOW MORE: $show_more");
+    ::debug3("SHOW MORE: $show_more");
     if($result->[0] && $result->[0]->{name} eq '<<HT_REDIRECT>>') {
-        ::debug("Redirect: $result->[2]->{name}");
+        ::debug2("Redirect: $result->[2]->{name}");
         return { result => [map{sprintf("%s\n",$_->{name})}@$result] };
     } elsif ($show_more) {
         return { result => [map{
@@ -1037,7 +1074,7 @@ sub main {
 
     my $curCliPos = shift @ARGV;
 
-    ::debug("curCliPos: $curCliPos");
+    ::debug1("curCliPos: $curCliPos");
     init $ARGV[0];
     main::debug_enabled() &&
         map { ::debug($_.'='.$ENV{$_}) } sort { $a <=> $b } grep { $_=~/^HT_/ } (keys %ENV);
@@ -1045,16 +1082,16 @@ sub main {
     my $curwordref = \$ARGV[$curCliPos];
     my $curword    =  $ARGV[$curCliPos];
 
-    ::debug("Preparing ARGV     : ".join(' ', @ARGV));
+    ::debug2("Preparing ARGV     : ".join(' ', @ARGV));
     my ($currchar, $curwordpos) = prepare_argv($comp_point, $comp_line, $curwordref);
-    ::debug("Prepared ARGV      : ".join(' ', @ARGV));
+    ::debug2("Prepared ARGV      : ".join(' ', @ARGV));
 
     my $results = list_matches([@ARGV[0..$curCliPos]]);
     my $result  = $results->{matches};
 
-    ::debug ("RESULT: ". scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
+    ::debug3 ("RESULT: ". scalar(@$result), map{"RESULT: ITEM: $_->{name} [$_->{type}]"}@$result);
     my $output = prepare_output ($results, $comp_point, $comp_line, $curword, $curwordpos);
-    ::debug ("Tty?: $tty, Output to tty? $output->{ttyready}");
+    ::debug1 ("Tty?: $tty, Output to tty? $output->{ttyready}");
     if ($output->{ttyready}) {
         write_to_tty $tty, $output->{result};
     } else {

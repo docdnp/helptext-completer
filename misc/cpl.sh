@@ -8,11 +8,15 @@ _helptext_completer()
     COMPREPLY=( $(COLUMNS=$COLUMNS helptext-completer -t "$___HT_TTY" -l "$COMP_LINE" -p $COMP_POINT -d "$___HT_DEBUG" -- $COMP_CWORD "${COMP_WORDS[@]}" 2>/dev/null ) )
     [ "${COMPREPLY[0]}" == "<<HT_REDIRECT>>" ] && {
         local CALL=${COMPREPLY[2]}
-        COMP_CWORD=$((${COMPREPLY[1]}-1))
+        COMP_CWORD=${COMPREPLY[1]}
         COMPREPLY=("${COMPREPLY[@]:3}")
         COMP_WORDS=(${COMPREPLY[@]})
         COMPREPLY=($($CALL))
     }
+    echo "DEBUG:::  $CALL returned: [${COMPREPLY[@]}]" >> $___HT_DEBUG
+    for i in ${COMPREPLY[@]} ; do 
+        echo "DEBUG::: Result item from $CALL: " $i >> $___HT_DEBUG
+    done
 }
 
 _helptext_completer_wrap_prepare() {
