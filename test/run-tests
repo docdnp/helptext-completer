@@ -12,7 +12,7 @@ use strict;
 use warnings;
 use FindBin;
 use Test::More;
-use lib ("$FindBin::Bin", "$FindBin::Bin/..");
+use lib ("$FindBin::Bin", "$FindBin::Bin/..", "$FindBin::Bin/../lib");
 
 sub load {
     $_[0] =~ /^#/ && return;
