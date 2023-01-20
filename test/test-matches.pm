@@ -214,13 +214,13 @@ sub createCommandsAndOptions {
     my $long = {type => 'LONG', line => \"", desc => ""};
     my $cmd  = {type => 'CMD', isCmd => 1, line => \"", desc => ""};
     return [
-        new Option ({ %$long, name => '--opt-1-arg'    , args => 'MANDATORY_ARG'}),
-        new Option ({ %$long, name => '--opt-2-args'   , args => 'MANDATORY_ARG1 MANDATORY_ARG2'}),
-        new Option ({ %$long, name => '--opt-1-opt-arg', args => '[OPTIONAL_ARG]'}),
-        new Option ({ %$long, name => '--opt-no-arg'   , args => ''}),
-        new Option ({ %$cmd,  name => 'cmd-1' }),
-        new Option ({ %$cmd,  name => 'cmd-2' }),
-        new Option ({ %$cmd,  name => 'cmd-3' }),
+        new Opts::Option ({ %$long, name => '--opt-1-arg'    , args => 'MANDATORY_ARG'}),
+        new Opts::Option ({ %$long, name => '--opt-2-args'   , args => 'MANDATORY_ARG1 MANDATORY_ARG2'}),
+        new Opts::Option ({ %$long, name => '--opt-1-opt-arg', args => '[OPTIONAL_ARG]'}),
+        new Opts::Option ({ %$long, name => '--opt-no-arg'   , args => ''}),
+        new Opts::Option ({ %$cmd,  name => 'cmd-1' }),
+        new Opts::Option ({ %$cmd,  name => 'cmd-2' }),
+        new Opts::Option ({ %$cmd,  name => 'cmd-3' }),
     ], {} , {envns => 'dummycmd'};
 }
 

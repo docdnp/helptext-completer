@@ -245,7 +245,8 @@ sub new_test {my ($ctxcmd, $cliargs, $expresult, $optname, $maxargs, $curargs) =
       compresults       => [],
       cmdctx            => { cmd => $ctxcmd, envns => $ctxenvns },
       opt               => ($optname 
-                            ? new Option ({name      => $optname, 
+                            ? new Opts::Option ({
+                                           name      => $optname, 
                                            needsArgs => $maxargs-$curargs,
                                            args      => join(' ', map { 'opt'.$_ } (1..$maxargs)),
                                            cliindex  => [

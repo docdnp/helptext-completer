@@ -2,12 +2,13 @@ package Logs::Log;
 use strict;
 use Exporter qw(import);
 
-use subs qw(_debug _debug1 _debug2 _debug3 _usage);
+use subs qw(_debug _debug1 _debug2 _debug3 _debug_end _usage);
 
-our @EXPORT = qw(debug debug1 debug2 debug3 debug_enabled usage register_usage init_debug_log);
+our @EXPORT = qw(debug debug1 debug2 debug3 debug_end debug_enabled usage register_usage init_debug_log);
 
 my $DEBUG_ENABLED = 0;
 
+BEGIN {
 sub noop          { 1 }
 
 *_usage     = \&noop;
@@ -16,14 +17,16 @@ sub noop          { 1 }
 *_debug2    = \&noop;
 *_debug3    = \&noop;
 *_debug_end = \&noop;
+}
 
 sub usage         { _usage }
 sub debug_enabled { $DEBUG_ENABLED }
 
-sub debug  { _debug  @_ }
-sub debug1 { _debug1 @_ }
-sub debug2 { _debug2 @_ }
-sub debug3 { _debug3 @_ }
+sub debug     { _debug  @_ }
+sub debug1    { _debug1 @_ }
+sub debug2    { _debug2 @_ }
+sub debug3    { _debug3 @_ }
+sub debug_end { _debug_end }
 
 sub logdebug      { 
     my $caller = (caller(1))[3]; 

@@ -4,11 +4,11 @@ use strict;
 use warnings;
 
 my @optdefs = (
-    new Option({ name => '--test', args => '' }),
-    new Option({ name => '--last', args => 'arg1' }),
-    new Option({ name => '--next', args => 'arg1 arg2' }),
-    new Option({ name => '--down', args => '[arg1]' }),
-    new Option({ name => '--fear', args => '[arg1] [arg2]' }),
+    new Opts::Option({ name => '--test', args => '' }),
+    new Opts::Option({ name => '--last', args => 'arg1' }),
+    new Opts::Option({ name => '--next', args => 'arg1 arg2' }),
+    new Opts::Option({ name => '--down', args => '[arg1]' }),
+    new Opts::Option({ name => '--fear', args => '[arg1] [arg2]' }),
 );
 
 subtest "Find last valid option in CLI args (for main command)" => sub {

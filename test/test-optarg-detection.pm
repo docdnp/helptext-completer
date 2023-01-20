@@ -331,7 +331,7 @@ sub Opt { my ($name, $numArgs, $argsAreMandatory) = @_;
     
     $argsAreMandatory || do { $prefix = '['; $suffix = ']' };
 
-    new Option({ 
+    new Opts::Option({ 
         name => $name,
         args => join(' ', map { $prefix.'opt-'.$_.$suffix } (1..$numArgs)),
      });

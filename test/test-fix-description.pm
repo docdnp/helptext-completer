@@ -54,10 +54,10 @@ sub setup {
 
     my $DESC_INDENT = ' ' x 25;
     $OPT_LIST = [
-        new Option({type => 'SHORT', desc => "Test bla bla"  , line => \"${DESC_INDENT} Test bla bla"}),
-        new Option({type => 'LONG', desc => "Test bla bla 2", line => \"${DESC_INDENT}Test bla bla 2"}),
-        new Option({type => 'CMD', desc => "Test bla bla"  , line => \"${DESC_INDENT} Test bla bla"}),
-        new Option({type => 'CMD', desc => "Test bla bla 2", line => \"${DESC_INDENT} Test bla bla 2"}),
+        new Opts::Option({type => 'SHORT', desc => "Test bla bla"  , line => \"${DESC_INDENT} Test bla bla"}),
+        new Opts::Option({type => 'LONG', desc => "Test bla bla 2", line => \"${DESC_INDENT}Test bla bla 2"}),
+        new Opts::Option({type => 'CMD', desc => "Test bla bla"  , line => \"${DESC_INDENT} Test bla bla"}),
+        new Opts::Option({type => 'CMD', desc => "Test bla bla 2", line => \"${DESC_INDENT} Test bla bla 2"}),
     ];
 }
 

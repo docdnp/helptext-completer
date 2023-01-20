@@ -1,129 +1,11 @@
 #!/usr/bin/env -S perl
-
 use strict;
 
-package main;
 use FindBin;
 use lib ("$FindBin::Bin/lib");
-use Logs::Log;
 
-sub fromEnv {  my  ($envvar, $defaultval, $envns, $mainapp) = @_;
-    $envns = defined $envns ? uc($envns) : uc($ARGV[0]);
-    $mainapp = uc($mainapp);
-    $envns   =~ s/-/_/g;
-    $mainapp =~ s/-/_/g;
-
-    ::debug ("Checking: $envvar, default: $defaultval, envns: $envns, mainapp: $mainapp");
-    my $envv = 'HT_APP_'.$envns.'_'.$envvar;
-    $envns   && defined $ENV{$envv} 
-             && ::debug("Result: ".$ENV{$envv})
-             && return  $ENV{$envv};
-    
-    $envv = 'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar;
-    $mainapp && defined $ENV{$envv}
-             && ::debug("Result: ".$ENV{$envv})
-             && return  $ENV{$envv};
-
-    $envv = 'HT_'.$envvar;
-                defined $ENV{$envv} 
-             && ::debug("Result: ".$ENV{$envv})
-             && return  $ENV{$envv};
-    return $defaultval;
-}
-
-sub redirectOptFromEnv {  my  ($optname, $defaultval, $envns, $mainapp) = @_;
-    $envns   = uc($envns);
-    $mainapp = uc($mainapp);
-    $optname = uc($optname);
-    $envns   =~ s/-/_/g;
-    $mainapp =~ s/-/_/g;
-    $optname =~ s/-//g;
-    sub env { defined $ENV{$_[1]} && do { ${$_[0]}=$ENV{$_[1]}; 1 } }
-    my $ret;
-       $optname && $envns   && env(\$ret, 'HT_REDIRECT_'.$envns.'__'.$optname) 
-    || $optname && $mainapp && env(\$ret, 'HT_REDIRECT_'.$mainapp.'__ANY__'.$optname)
-    ||             $envns   && env(\$ret, 'HT_REDIRECT_'.$envns)
-    ||             $mainapp && env(\$ret, 'HT_REDIRECT_'.$mainapp)
-    || ($ret = $defaultval);
-    $ret =~ s/^(false|no|0)$//ig;
-    return $ret;
-}
-
-sub numberFromEnv {  my  ($ref2var, $envvar, $defaultval, $ifGreaterThan, $appname, $mainapp) = @_;
-    my $envval = fromEnv($envvar, $defaultval, $appname, $mainapp);
-    ! ($envval =~ /^\d+$/ && ($envval >= $ifGreaterThan)) && return $defaultval;
-    return $$ref2var = $ENV{'HT_'.$envvar} = $envval;
-}
-
-sub error {
-    print STDERR @_,"\n";
-    debug ("ARG ERROR: ", @_);
-    usage(*STDERR);
-    exit 1;
-}
-
-# ------------------------------------------------------------------------------------------
-package Option;
-
-my @RW = qw( args lineno cliindex needsArgs );
-
-sub new { my ($class, $args) = @_;
-    my  $self = { name => '', isCmd   => 0 , line    => '', lineno   => 0,
-                  desc => '', padding => '', args    => '', pad2Args => 0, 
-                  prev => 0 , next    => 0 , numArgs => 0 , pad2Desc => 0 , 
-                  type => '', hasOptArgs => 0, cliindex => 0, needsArgs => 0
-                };
-    $args && ($self = { %$self , %$args });
-    $self = bless($self, $class)->init();
-    # Internals::SvREADONLY(%$self,1);
-    # while(my ($k,$v) = each %$self) {
-    #     grep (/$k/, @RW )|| Internals::SvREADONLY($v,1);
-    # }
-    return $self
-}
-
-sub init { my $self = $_[0];
-    $self->{args} =~ /^\s*\[/ && ($self->{hasOptArgs} = 1);
-    $self->{args} =~ s/^\[=(.*?)\]$/$1/;
-    $self->{args} =~ s/^[=\s]*//;
-    $self->{args} =~ s/\s*$//;
-    $self->{numArgs}  = () = $self->{args} =~ /(?:[^\s]+)/g;
-    $self->{line} && do {
-        $self->{pad2Desc} = index(${$self->{line}}, $self->{desc});
-        $self->{pad2Args} = index(${$self->{line}}, $self->{args});
-    };
-    return $self
-}
-
-sub copyDescription { my ($dest, $source, $onlyPadding) = @_;
-    my $self = $dest;
-    $dest->{pad2Args} && $dest->{pad2Desc} && $dest->{pad2Args} == $source->{pad2Desc} 
-        && return $dest->useArgsAsDesc();
-    do {
-        $dest->{desc} = ($onlyPadding ? "?" : $source->{desc});
-        $dest->{pad2Desc} = $source->{pad2Desc};
-        $source = $dest;
-    } while ($dest = $dest->{next});
-    return $self;
-}
-
-sub useArgsAsDesc { my ($dest, $source) = @_;
-    my $self = $dest;
-    $source = $dest;
-    do {
-        $dest->{pad2Desc} = $source->{pad2Args};
-        $dest->{desc}     = $source->{args};
-        $dest->{pad2Args} = 0;
-        $dest->{args}     = '';
-        $source = $dest;
-    } while ($dest = $dest->{next});
-    return $self;
-}
-
-sub chain { my ($self, $nextOpt) = @_;
-    $self->{next} = $nextOpt;
-    $nextOpt->{prev} = $self;
-}
+use main;
+use Opts::Option;
 
 # ------------------------------------------------------------------------------------------
 package Opts::Find;
@@ -200,14 +82,14 @@ sub init {
 
 sub mkOpt { my ($lineno, $line, $refopt) = @_;
     my ($optprefix, $optstem) = ($+{optprefix}, $+{optstem});
-    my $opt = new Option { 
+    my $opt = new Opts::Option { 
         line     => $line, lineno => $lineno, 
         padding  => ($+{padding} || ($refopt && $refopt->{padding})), 
         name     => ($+{longopt} || $+{shortopt} || '--'.$+{optprefix}.$+{optstem}),
         args     => $+{args}, type => ($+{longopt} || $+{prefixopt})?'LONG':'SHORT'
     };
     $+{optprefix} || return $opt;
-    my $nextOpt = new Option { 
+    my $nextOpt = new Opts::Option { 
         name     => '--'.$+{optstem}, line => $line, lineno => $lineno, 
         padding  => $+{padding} || $refopt && $refopt->{padding}, 
         type => 'LONG', args => ($+{args} || $refopt && $refopt->{args})
@@ -251,19 +133,19 @@ sub AnyOpt { my ($line, $lineno) = @_;
 sub DescLine { my $line = $_[0];
     my $padding_max = $padding_max+1;
     $$line !~ /^ \s{$padding_max,}([^-\<\[\(\{].*) /x && return 0;
-    return new Option({ name => 'Line-'.$nameId++, line => $line, desc => $1, type => 'DESC'})
+    return new Opts::Option ({ name => 'Line-'.$nameId++, line => $line, desc => $1, type => 'DESC'})
 }
 
 sub EmptyLine { my $line = $_[0];
     $$line !~ /^ \s* $/x && return 0;
-    return new Option({ name => 'Line-'.$nameId++, line => $line, type => 'EMPTY'})
+    return new Opts::Option({ name => 'Line-'.$nameId++, line => $line, type => 'EMPTY'})
 }
 
 sub Command  {
     my ($line, $lineno) = @_;
     $$line=~/^$reCommand$/ || return;
     ::debug3 ("Found COMMAND->START     : cmd $2.");
-    my $opt = new Option { line     => $line, padding  => $1, name     => $2,
+    my $opt = new Opts::Option  { line     => $line, padding  => $1, name     => $2,
                             desc     => $3   , isCmd    => 1 , type     => 'CMD',
                             lineno   => $lineno };
 }
@@ -748,7 +630,7 @@ sub redirect {
         @$cliargs = grep { $_ ne '=' } @$cliargs;
         my @cmd = split(/\s+/, $fullCmd->{cmd});
         my $cnt = scalar(@cmd) + ($opt && $opt->{numArgs}) + 1;
-        return [ map {new Option({name => $_})} 
+        return [ map {new Opts::Option({name => $_})} 
                     grep { $_ } 
                     (
                         '<<HT_REDIRECT>>'
