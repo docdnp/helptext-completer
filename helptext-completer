@@ -641,7 +641,7 @@ sub LastOption {
     while ($i) {
         ::debug2 ("CHECK: SEEK : ".($i)." -> '@$cliArgs[$i]'");
         ($lastOptName, $optIdx) = GuessLastOption([@$cliArgs[0..$i--]]);
-        $optIdx <= $subcmdpos && do { ::debug ("optIdx to low: $optIdx <= $subcmdpos") ; return };
+        $optIdx <= $subcmdpos && do { ::debug ("optIdx to low: $optIdx <= $subcmdpos") ; return 0};
         ::debug2 ("CHECK: GUESS: $lastOptName");
         $lastOptName || next;
         $optIdx == @$cliArgs - 1 && next;
@@ -652,6 +652,7 @@ sub LastOption {
         ::debug2 ("CHECK: SEEK: RESULT: ".($i)." -> '".($lastOpt && $lastOpt->{name})."'");
         $lastOpt && return ($lastOpt, $optIdx);
     }
+    return 0;
 }
 
 # ------------------------------------------------------------------------------------------
@@ -812,8 +813,9 @@ sub redirect {
                         , $cnt
                         , $redirect
                         , @cmd
-                        , $opt && $opt->{cliindex} 
-                               && map { $cliargs->[$_] } ($opt->{cliindex}..@$cliargs)
+                        , !$opt && $fullCmd->{subcmd} && $cliargs->[$fullCmd->{subcmd}->{pos} + 1]
+                        ,  $opt && $opt->{cliindex} 
+                                && map { $cliargs->[$_] } ($opt->{cliindex}..@$cliargs)
                     )
                ];
     };

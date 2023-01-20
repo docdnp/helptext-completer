@@ -36,11 +36,18 @@ _pip_cert ()
     compgen -S " " -W "$(echo -e 'test-1.cert\ntest-2.cert')" -- "${COMP_WORDS[$COMP_CWORD]}"
 }
 
+_pip_install () {
+    echo "DEBUG::: COMP_CWORD: [$COMP_CWORD]" >> /tmp/X
+    echo "DEBUG::: CURWORD   : [${COMP_WORDS[$COMP_CWORD]}]" >> /tmp/X
+    compgen -W "$(echo -e '111\n222\n333')" -- "${COMP_WORDS[$COMP_CWORD]}"
+}
+
 pip-test () {
     # export HT_APP_PIP_HELPOPT=':man'
     
     export HT_REDIRECT_PIP__ANY__CERT='_pip_cert'
     export HT_REDIRECT_PIP__ANY__PYTHON='_pip_version'
+    export HT_REDIRECT_PIP_INSTALL='_pip_install'
     # export HT_REDIRECT_PIP_INSTALL='_test2'
     complete -o default -F _helptext_completer pip
 }
