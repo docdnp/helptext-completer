@@ -10,15 +10,20 @@ sub fromEnv {  my  ($envvar, $defaultval, $envns, $mainapp) = @_;
     $mainapp =~ s/-/_/g;
 
     ::debug ("Checking: $envvar, default: $defaultval, envns: $envns, mainapp: $mainapp");
-    $envns   && defined $ENV{'HT_APP_'.$envns.'_'.$envvar} 
-             && ::debug("Result: ".$ENV{'HT_APP_'.$envns.'_'.$envvar})
-             && return  $ENV{'HT_APP_'.$envns.'_'.$envvar};
-    $mainapp && defined $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar}
-             && ::debug("Result: ".$ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar})
-             && return  $ENV{'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar};
-                defined $ENV{'HT_'.$envvar} 
-             && ::debug("Result: ".$ENV{'HT_'.$envvar})
-             && return  $ENV{'HT_'.$envvar};
+    my $envv = 'HT_APP_'.$envns.'_'.$envvar;
+    $envns   && defined $ENV{$envv} 
+             && ::debug("Result: ".$ENV{$envv})
+             && return  $ENV{$envv};
+    
+    $envv = 'HT_APP_'.$mainapp.'_SUBCOMMANDS_'.$envvar;
+    $mainapp && defined $ENV{$envv}
+             && ::debug("Result: ".$ENV{$envv})
+             && return  $ENV{$envv};
+
+    $envv = 'HT_'.$envvar;
+                defined $ENV{$envv} 
+             && ::debug("Result: ".$ENV{$envv})
+             && return  $ENV{$envv};
     return $defaultval;
 }
 
