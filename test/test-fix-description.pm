@@ -61,9 +61,9 @@ sub setup {
     ];
 }
 
-sub teardown {
+sub teardown { 
     no strict; no warnings;
-    for(my ($k, $v) = each %$funcs) { *{$k} = $v }
+    while(my ($k, $v) = each %$funcs) { *{$k} = $v;}
 }
 
 sub testData {

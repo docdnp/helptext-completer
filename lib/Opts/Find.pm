@@ -1,5 +1,6 @@
 package Opts::Find;
 use strict;
+use warnings;
 
 my $nameId          = 0;
 my ($optarg_dist_min, $optarg_dist_max, $padding_min, $padding_max, $no_commands);
@@ -9,9 +10,9 @@ sub initRegExps {
     my $reLeftPadding     = qr/ \s{$padding_min,$padding_max} /x;
     my $reArgDist         = qr/ \s{$optarg_dist_min,$optarg_dist_max} /x;
 
-    my $reArgHeadNoAssign = qr/ [^\]\}\)\>=-\s] /x; # One char, no assign, blank, opt char or 
+    my $reArgHeadNoAssign = qr/ [^\]\}\)\>=\-\s] /x; # One char, no assign, blank, opt char or 
                                                  # closing brackets
-    my $reArgHeadAssign   = qr/ =[^]})>-\s] /x;     # One assign char, followed by, no blank, opt char or 
+    my $reArgHeadAssign   = qr/ =[^]})>\-\s] /x;     # One assign char, followed by, no blank, opt char or 
                                                  # closing brackets
     my $reArgBody         = qr/ (?:   \S*[^\s,\|:]+ # Either empty or anything not ending on delimiters
                             | [^,|:\s]+ )?       # or anything except delimiters
@@ -33,9 +34,9 @@ sub initRegExps {
                             | \/$reNonAssignArg\/
                         /x;
     my $rePureShortOpt    = qr/ -[a-zA-Z\d] /x;
-    my $rePureLongOpt     = qr/ --[\w-]+ /x;
+    my $rePureLongOpt     = qr/ --[\w\-]+ /x;
     my $rePrefixedLongOpt = qr/ --\[(?<optprefix>.*?)\](?<optstem>[\w-]+) /x;
-    my $rePureCmd         = qr/ \w[\w-]+ /x;
+    my $rePureCmd         = qr/ \w[\w\-]+ /x;
     my $reOptDelim        = qr/ (?:[,\|\s]) /x;
 
     my $reAnyOptBody      = qr/ (?:  (?<longopt>$rePureLongOpt) 
@@ -67,7 +68,7 @@ sub init {
         [ NO_COMMANDS     => \$no_commands    ,      0,    \0 ],
     );
     for (@conf) { main::numberFromEnv($_->[1], $_->[0], $_->[2], ${$_->[3]}, @_ ) }
-    $no_commands && (*{Command} = sub {});
+    $no_commands && (*{Command} = sub {0});
     initRegExps();
 }
 
@@ -91,7 +92,7 @@ sub mkOpt { my ($lineno, $line, $refopt) = @_;
 
 sub Opt {
     my ($line, $lineno, $firstOpt, $currOpt, $nextOpt) = ($_[0], $_[1]);
-    $$line =~   /^ $reAnyOptStart /x || return;
+    $$line =~   /^ $reAnyOptStart /x || return 0;
     $currOpt = $firstOpt = mkOpt($lineno, $line);
     while ($currOpt->{next}) { $currOpt = $currOpt->{next} }
 
@@ -134,7 +135,7 @@ sub EmptyLine { my $line = $_[0];
 
 sub Command  {
     my ($line, $lineno) = @_;
-    $$line=~/^$reCommand$/ || return;
+    $$line=~/^$reCommand$/ || return 0;
     ::debug3 ("Found COMMAND->START     : cmd $2.");
     my $opt = new Opts::Option  { line     => $line, padding  => $1, name     => $2,
                             desc     => $3   , isCmd    => 1 , type     => 'CMD',

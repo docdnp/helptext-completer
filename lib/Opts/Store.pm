@@ -15,10 +15,10 @@ sub optCache { my $me = shift; return $me->{optcache} }
 sub inCache  { my ($me, $opt) = @_; exists $me->{optcache}->{$opt->{name}} }
 sub toCache  { my ($me, $opt) = @_; $me->{optcache}->{$opt->{name}} = $opt }
 sub store    { my ($me, $opt) = @_;
-    do { ( ! $opt || $me->inCache($opt) ) && next;
+    do { ( ! $opt || $me->inCache($opt) ) || do {
         ::debug3("Storing: $opt->{name} args:[$opt->{args}] padding:[$opt->{padding}] pad2Desc:[$opt->{pad2Desc}]");
         push @{$me->{allopts}}, $me->toCache($opt);
-    }
+    }}
     while($opt = $opt->{next});
 }
 
