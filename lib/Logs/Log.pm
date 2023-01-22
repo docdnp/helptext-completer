@@ -4,7 +4,7 @@ use Exporter qw(import);
 
 use subs qw(_debug _debug1 _debug2 _debug3 _debug_end _usage);
 
-our @EXPORT = qw(debug debug1 debug2 debug3 debug_end debug_enabled usage register_usage init_debug_log);
+our @EXPORT = qw(debug debug1 debug2 debug3 debug_end debug_enabled trace usage register_usage init_debug_log);
 
 my $DEBUG_ENABLED = 0;
 
@@ -19,6 +19,11 @@ sub noop          { 1 }
 *_debug_end = \&noop;
 }
 
+sub trace{ 
+    require Logs::Trace;
+    Trace::trace(split(/\s*,\s*/, $_[1]))
+}
+
 sub usage         { _usage }
 sub debug_enabled { $DEBUG_ENABLED }
 
@@ -29,23 +34,26 @@ sub debug3    { _debug3 @_ }
 sub debug_end { _debug_end }
 
 sub logdebug      { 
-    my $caller = (caller(1))[3]; 
-
-    if ($caller =~ /debug_log_line/) { 
-        $caller = (caller(2))[3] 
-    } 
+    my $caller = (caller(2))[3]; 
 
     $_[0] =~ /^>(.*)/ 
         && ($caller = $1, shift);
 
     my @ARGS=@_; 
-    print D "DEBUG: ", $caller, ": ", join("\nDEBUG: ", 
-        map{chomp($_);$_='['.$_.']'}@{[@ARGS]} ), "\n" 
+    print D "DEBUG: ", $caller, ": ", 
+        join(
+            "\nDEBUG: "
+            , map{
+                chomp;
+                $_='['.$_.']'
+              } @{[@_]}
+        )
+        , "\n" 
 }
 
 sub logdebug_end  { 
     for(1..10) { 
-        print D ((caller(1))[3], " # ---------------------------------------------------- #\n" )
+        print D ((caller(1))[3], " # ", '-' x 60," #\n" )
     } 
 }
 

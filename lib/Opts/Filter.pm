@@ -54,8 +54,7 @@ sub init {
 }
 
 sub KeepByMajoritysMatchingProp {
-    my ($candidates, $propfunc, $propname) = @_;
-    my $caller = (caller(1))[3];
+    my ($candidates, $propfunc, $propname, $caller) = @_;
     ::debug("$caller: $propname: candidate list size: ".scalar(@$candidates));
     my $hist      = Histogram::CreateHistogram($candidates, $propfunc);
     ::debug("$caller: $propname: Hist result: ". $hist);
@@ -83,8 +82,22 @@ sub KeepByMajoritysMatchingProp {
     return $candidates;
 }
 
-sub KeepByMajorityOfEquallyIndented { KeepByMajoritysMatchingProp ($_[0], sub { (length($_[0]->{padding}) || 0) }, 'padding' )}
-sub KeepByMajoritysDescrPadding     { KeepByMajoritysMatchingProp ($_[0], sub { ($_[0]->{pad2Desc} || 0) }       , 'pad2Desc')}
+sub KeepByMajorityOfEquallyIndented { 
+    KeepByMajoritysMatchingProp (
+        $_[0], 
+        sub { (length($_[0]->{padding}) || 0) }, 
+        'padding' , 
+        (caller(0))[3]
+    )
+}
+sub KeepByMajoritysDescrPadding{ 
+    KeepByMajoritysMatchingProp (
+        $_[0], 
+        sub { ($_[0]->{pad2Desc} || 0) }, 
+        'pad2Desc', 
+        (caller(0))[3]
+    )
+}
 
 sub DiscardIfMatchesName {
     my ($candidates, $name) = @_;

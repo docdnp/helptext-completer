@@ -350,7 +350,7 @@ sub get_opts {
     'l|comp-line=s'      => \$comp_line,
     't|tty=s'            => \$tty,
     'd|log-debug=s'      => \&::init_debug_log,
-      'trace'            => \&::trace,
+      'trace=s'          => \&::trace,
     's|completion=s'     => sub { printCompletion $_[1]; exit 0 },
     'h|help:s'           => sub { main::usage(*STDOUT, $_[1] eq 'all'); exit 0  },
     ) 
@@ -425,8 +425,8 @@ Usage: ${FindBin::Script} [OPTIONS] ARGS...
   -d|--log-debug LOGFILE
                 dump debug messages to the given logfile.
 
-  -D|--trace 
-                activates tracing (implies -d to be active).
+     --trace PKG_NAMES
+                activates tracing (implies -d to be active). PKGNAMES is a comma-separated list.
 
   -h|--help [all]
                 print this help text.
